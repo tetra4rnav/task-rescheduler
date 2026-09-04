@@ -1,0 +1,101 @@
+[
+  {
+    "id": "evt-01",
+    "summary": "Morning meeting",
+    "status": "confirmed",
+    "transparency": "opaque",
+    "start": { "dateTime": "2026-03-08T09:00:00-04:00" },
+    "end": { "dateTime": "2026-03-08T10:00:00-04:00" }
+  },
+  {
+    "id": "evt-02",
+    "summary": "Blocked research time",
+    "status": "confirmed",
+    "transparency": "opaque",
+    "start": { "dateTime": "2026-03-08T10:00:00-04:00" },
+    "end": { "dateTime": "2026-03-08T11:30:00-04:00" }
+  },
+  {
+    "id": "evt-03",
+    "summary": "Overlap test",
+    "status": "confirmed",
+    "transparency": "opaque",
+    "start": { "dateTime": "2026-03-08T11:00:00-04:00" },
+    "end": { "dateTime": "2026-03-08T12:00:00-04:00" }
+  },
+  {
+    "id": "evt-04",
+    "summary": "Lunch with free status",
+    "status": "confirmed",
+    "transparency": "transparent",
+    "start": { "dateTime": "2026-03-08T13:00:00-04:00" },
+    "end": { "dateTime": "2026-03-08T14:00:00-04:00" }
+  },
+  {
+    "id": "evt-05",
+    "summary": "All day conference",
+    "status": "confirmed",
+    "transparency": "opaque",
+    "start": { "date": "2026-03-09" },
+    "end": { "date": "2026-03-10" }
+  },
+  {
+    "id": "evt-06",
+    "summary": "Cancelled thing",
+    "status": "cancelled",
+    "transparency": "opaque",
+    "start": { "dateTime": "2026-03-08T15:00:00-04:00" },
+    "end": { "dateTime": "2026-03-08T16:00:00-04:00" }
+  },
+  {
+    "id": "evt-07",
+    "summary": "[Todoist] Review protocol (60min)",
+    "description": "Todoist URL: https://todoist.com/showTask?id=task-07\nTodoist Task ID: task-07\nTodoist Priority: 2\nOriginal Due: none\nDuration Basis: title_pattern\nPlanner Version: 1.0.0\nTETRA_TODOIST_TASK_ID=task-07",
+    "status": "confirmed",
+    "transparency": "opaque",
+    "start": { "dateTime": "2026-03-08T15:45:00-04:00" },
+    "end": { "dateTime": "2026-03-08T16:45:00-04:00" },
+    "extendedProperties": {
+      "private": {
+        "managedBy": "task-rescheduler",
+        "todoistTaskId": "task-07",
+        "planDate": "2026-03-08",
+        "plannerVersion": "1.0.0"
+      }
+    }
+  },
+  {
+    "id": "evt-08",
+    "summary": "[Todoist] Review protocol (60min)",
+    "description": "Todoist URL: https://todoist.com/showTask?id=task-07\nTodoist Task ID: task-07\nTodoist Priority: 2\nOriginal Due: none\nDuration Basis: title_pattern\nPlanner Version: 1.0.0\nTETRA_TODOIST_TASK_ID=task-07",
+    "status": "confirmed",
+    "transparency": "opaque",
+    "start": { "dateTime": "2026-03-10T15:00:00-04:00" },
+    "end": { "dateTime": "2026-03-10T16:00:00-04:00" },
+    "extendedProperties": {
+      "private": {
+        "managedBy": "task-rescheduler",
+        "todoistTaskId": "task-07",
+        "planDate": "2026-03-10",
+        "plannerVersion": "1.0.0"
+      }
+    }
+  },
+  {
+    "id": "evt-09",
+    "summary": "[Todoist] Old missing task",
+    "description": "TETRA_TODOIST_TASK_ID=missing-task",
+    "status": "confirmed",
+    "transparency": "opaque",
+    "start": { "dateTime": "2026-03-10T16:00:00-04:00" },
+    "end": { "dateTime": "2026-03-10T16:30:00-04:00" },
+    "extendedProperties": {
+      "private": {
+        "managedBy": "task-rescheduler",
+        "todoistTaskId": "missing-task",
+        "planDate": "2026-03-10",
+        "plannerVersion": "1.0.0"
+      }
+    }
+  }
+]

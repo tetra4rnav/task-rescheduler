@@ -1,0 +1,7 @@
+{
+  "tasks": [
+    { "id": "page-task-1", "content": "Page one", "priority": 1 },
+    { "id": "page-task-2", "content": "Page one b", "priority": 1 }
+  ],
+  "next_cursor": "cursor-2"
+}

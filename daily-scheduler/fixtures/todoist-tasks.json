@@ -1,0 +1,163 @@
+[
+  {
+    "id": "task-01",
+    "content": "Write grant draft",
+    "description": "Draft the summary section",
+    "project_id": "proj-1",
+    "project_name": "Deep Work",
+    "labels": [],
+    "priority": 4,
+    "due": { "date": "2026-03-06", "is_recurring": false },
+    "created_at": "2026-03-01T12:00:00Z",
+    "url": "https://todoist.com/showTask?id=task-01"
+  },
+  {
+    "id": "task-02",
+    "content": "Validate dataset",
+    "description": "Run validation on sample cohort",
+    "project_id": "proj-2",
+    "project_name": "Research",
+    "labels": [],
+    "priority": 3,
+    "due": { "date": "2026-03-08", "is_recurring": false },
+    "created_at": "2026-03-05T12:00:00Z",
+    "url": "https://todoist.com/showTask?id=task-02"
+  },
+  {
+    "id": "task-03",
+    "content": "Send invoice",
+    "description": "",
+    "project_id": "proj-3",
+    "project_name": "Admin",
+    "labels": [],
+    "priority": 2,
+    "created_at": "2026-03-07T09:00:00Z",
+    "url": "https://todoist.com/showTask?id=task-03"
+  },
+  {
+    "id": "task-04",
+    "content": "Already timed task",
+    "description": "Should be ignored",
+    "project_id": "proj-2",
+    "project_name": "Research",
+    "labels": [],
+    "priority": 4,
+    "due": { "datetime": "2026-03-08T20:00:00-04:00", "timezone": "America/New_York", "is_recurring": false },
+    "created_at": "2026-03-05T09:00:00Z",
+    "url": "https://todoist.com/showTask?id=task-04"
+  },
+  {
+    "id": "task-05",
+    "content": "Daily workout",
+    "description": "Recurring health task",
+    "project_id": "proj-4",
+    "project_name": "Habits",
+    "labels": [],
+    "priority": 3,
+    "due": { "date": "2026-03-07", "is_recurring": true },
+    "created_at": "2026-03-02T08:00:00Z",
+    "url": "https://todoist.com/showTask?id=task-05"
+  },
+  {
+    "id": "task-06",
+    "content": "Admin backlog cleanup",
+    "description": "Routine filing",
+    "project_id": "proj-3",
+    "project_name": "Admin",
+    "labels": ["ops"],
+    "priority": 1,
+    "duration": { "amount": 45, "unit": "minute" },
+    "created_at": "2026-03-04T08:00:00Z",
+    "url": "https://todoist.com/showTask?id=task-06"
+  },
+  {
+    "id": "task-07",
+    "content": "Review protocol (60min)",
+    "description": "Study review",
+    "project_id": "proj-2",
+    "project_name": "Research",
+    "labels": [],
+    "priority": 2,
+    "created_at": "2026-03-06T08:30:00Z",
+    "url": "https://todoist.com/showTask?id=task-07"
+  },
+  {
+    "id": "task-08",
+    "content": "Research adverse event rates",
+    "description": "Literature review",
+    "project_id": "proj-2",
+    "project_name": "Research",
+    "labels": [],
+    "priority": 2,
+    "created_at": "2026-03-06T09:00:00Z",
+    "url": "https://todoist.com/showTask?id=task-08"
+  },
+  {
+    "id": "task-09",
+    "content": "Tie task alpha",
+    "description": "",
+    "project_id": "proj-5",
+    "project_name": "Misc",
+    "labels": [],
+    "priority": 2,
+    "created_at": "2026-03-01T09:00:00Z",
+    "url": "https://todoist.com/showTask?id=task-09"
+  },
+  {
+    "id": "task-10",
+    "content": "Tie task beta",
+    "description": "",
+    "project_id": "proj-5",
+    "project_name": "Misc",
+    "labels": [],
+    "priority": 2,
+    "created_at": "2026-03-02T09:00:00Z",
+    "url": "https://todoist.com/showTask?id=task-10"
+  },
+  {
+    "id": "task-11",
+    "content": "Skip me by label",
+    "description": "",
+    "project_id": "proj-5",
+    "project_name": "Misc",
+    "labels": ["no-auto-schedule"],
+    "priority": 4,
+    "created_at": "2026-03-01T09:00:00Z",
+    "url": "https://todoist.com/showTask?id=task-11"
+  },
+  {
+    "id": "task-12",
+    "content": "Child task should be excluded",
+    "description": "",
+    "project_id": "proj-5",
+    "project_name": "Misc",
+    "labels": [],
+    "priority": 4,
+    "parent_id": "parent-1",
+    "created_at": "2026-03-01T09:00:00Z",
+    "url": "https://todoist.com/showTask?id=task-12"
+  },
+  {
+    "id": "task-13",
+    "content": "Overdue timed JST task",
+    "description": "Time-zone aware due datetime",
+    "project_id": "proj-2",
+    "project_name": "Research",
+    "labels": [],
+    "priority": 4,
+    "due": { "datetime": "2026-03-08T20:30:00+09:00", "timezone": "Asia/Tokyo", "is_recurring": false },
+    "created_at": "2026-03-03T09:00:00Z",
+    "url": "https://todoist.com/showTask?id=task-13"
+  },
+  {
+    "id": "task-14",
+    "content": "Book dentist appointment",
+    "description": "simple one-off action",
+    "project_id": "proj-3",
+    "project_name": "Admin",
+    "labels": ["quick"],
+    "priority": 1,
+    "created_at": "2026-03-03T09:00:00Z",
+    "url": "https://todoist.com/showTask?id=task-14"
+  }
+]

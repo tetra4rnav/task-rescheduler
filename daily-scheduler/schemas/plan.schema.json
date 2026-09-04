@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://task-rescheduler.local/schemas/daily-scheduler-plan.schema.json",
+  "title": "DailySchedulerPlan",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "generated_at",
+    "timezone",
+    "mode",
+    "todoist_only",
+    "inputs",
+    "scheduled",
+    "unscheduled",
+    "deferred",
+    "manual_review",
+    "operations",
+    "errors",
+    "warnings",
+    "state_hash"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "timezone": { "type": "string" },
+    "mode": { "type": "string", "enum": ["dry-run", "apply"] },
+    "todoist_only": { "type": "boolean" },
+    "inputs": {
+      "type": "object",
+      "required": ["todoist_task_count", "calendar_event_count", "window"],
+      "properties": {
+        "todoist_task_count": { "type": "integer", "minimum": 0 },
+        "calendar_event_count": { "type": "integer", "minimum": 0 },
+        "window": {
+          "type": "object",
+          "required": ["start", "days", "calendars"],
+          "properties": {
+            "start": { "type": "string" },
+            "days": { "type": "integer", "minimum": 1 },
+            "calendars": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "scheduled": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "task_id",
+          "title",
+          "priority",
+          "duration_minutes",
+          "duration_source",
+          "deadline_at",
+          "scheduled_start",
+          "assignment_source",
+          "planner_version",
+          "score",
+          "score_breakdown",
+          "start",
+          "end",
+          "reason_codes",
+          "idempotency_key"
+        ],
+        "properties": {
+          "deadline_at": { "type": ["string", "null"] },
+          "scheduled_start": { "type": "string" },
+          "assignment_source": { "type": "string", "enum": ["manual", "task-rescheduler"] },
+          "planner_version": { "type": "string" },
+          "duration_minutes": { "type": "number", "minimum": 1 }
+        }
+      }
+    },
+    "unscheduled": { "type": "array", "items": { "type": "object", "required": ["task_id", "reason_code"] } },
+    "manual_review": { "type": "array", "items": { "type": "object", "required": ["task_id", "reason_code"] } },
+    "operations": {
+      "type": "object",
+      "required": ["calendar_create", "calendar_update", "calendar_noop", "calendar_stale", "todoist_due_update"],
+      "properties": {
+        "calendar_create": { "type": "array" },
+        "calendar_update": { "type": "array" },
+        "calendar_noop": { "type": "array" },
+        "calendar_stale": { "type": "array" },
+        "todoist_due_update": { "type": "array" }
+      }
+    },
+    "errors": { "type": "array" },
+    "warnings": { "type": "array" },
+    "state_hash": { "type": "string" },
+    "deferred": { "type": "array" }
+  }
+}
