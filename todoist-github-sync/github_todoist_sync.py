@@ -143,17 +143,79 @@ class GhRunner:
 
 
 def fetch_issues(runner: GhRunner, owner: str, repo: str) -> list[dict]:
+    """List every issue in `owner/repo` and enrich each with parent/dependency
+    summaries. `gh issue list --json` does not natively expose `parent_issue_url`
+    or `issue_dependencies_summary`, so we either:
+
+      * request them when the installed `gh` version supports the fields
+        (>= 2.86; emits a clear warning if not), or
+      * fall back to the basic set and leave parent/blocked_by empty so
+        the rest of the pipeline still runs.
+
+    Either way, every returned dict carries `parent_issue_url` and
+    `issue_dependencies_summary` keys (possibly empty) so downstream code can
+    read them unconditionally.
+
+    Returns (rows, unsupported_warning). `unsupported_warning` is None on the
+    happy path and a human-readable string when gh fell back to the baseline
+    JSON set — the caller surfaces it on stderr so operators notice the
+    sub-task / blocked-by sync isn't running.
+    """
     rc, stdout, _ = runner.run([
         "issue", "list", "--repo", f"{owner}/{repo}",
         "--state", "all", "--limit", "500", "--json",
         "number,title,state,url,body,comments",
+        "parent_issue_url,sub_issues_summary,issue_dependencies_summary",
+    ])
+    unsupported_warning: Optional[str] = None
+    if rc != 0:
+        # Older gh versions don't support those extra fields. Retry with the
+        # baseline set so we still get an issue list (parent/blocked_by empty).
+        unsupported_warning = (
+            f"WARN: gh issue list on {owner}/{repo} does not support "
+            f"parent_issue_url / issue_dependencies_summary fields. Sub-task "
+            f"and blocked-by sync will be skipped for this repo. Upgrade "
+            f"`gh` to >= 2.86 to enable them."
+        )
+        rc, stdout, _ = runner.run([
+            "issue", "list", "--repo", f"{owner}/{repo}",
+            "--state", "all", "--limit", "500", "--json",
+            "number,title,state,url,body,comments",
+        ])
+        if rc != 0:
+            return [], unsupported_warning
+    try:
+        rows = json.loads(stdout or "[]")
+    except json.JSONDecodeError:
+        return [], unsupported_warning
+    # Normalise: ensure the summary keys exist even when the gh CLI omitted
+    # them (older versions).
+    for row in rows:
+        row.setdefault("parent_issue_url", None)
+        row.setdefault("sub_issues_summary", {})
+        row.setdefault("issue_dependencies_summary", {})
+    return rows, unsupported_warning
+
+
+def fetch_blocked_by(
+    runner: GhRunner, owner: str, repo: str, issue_number: int,
+) -> list[int]:
+    """Return the issue numbers that `issue_number` is blocked by.
+
+    Empty list on error or no dependencies. The detail endpoint is only
+    called when `issue_dependencies_summary.blocked_by > 0` (caller's
+    responsibility to gate); we don't fetch the same endpoint twice per issue.
+    """
+    rc, stdout, _ = runner.run([
+        "api", f"repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by",
     ])
     if rc != 0:
         return []
     try:
-        return json.loads(stdout or "[]")
+        rows = json.loads(stdout or "[]")
     except json.JSONDecodeError:
         return []
+    return [int(r["number"]) for r in rows if r.get("number") is not None]
 
 
 def fetch_project_dates(
@@ -313,19 +375,28 @@ def fetch_task_comments(client: TodoistClient, task_id: str) -> list[dict]:
 
 
 class Transport(Protocol):
-    """The five writes the sync engine can perform against Todoist."""
+    """The seven writes the sync engine can perform against Todoist."""
     def create_task(self, body: dict) -> Optional[str]: ...
     def update_task(self, task_id: str, body: dict) -> None: ...
     def move_task(self, task_id: str, project_id: str) -> None: ...
     def close_task(self, task_id: str) -> None: ...
     def post_comment(self, task_id: str, content: str) -> None: ...
+    def set_parent(self, task_id: str, parent_id: Optional[str]) -> None: ...
+    def set_dependencies(self, task_id: str, dependency_ids: list[str]) -> None: ...
 
 
 @dataclass
 class TodoistTransport:
-    """Production Transport — every call goes to Todoist REST."""
+    """Production Transport — every call goes to Todoist REST.
+
+    `parent_id` is a regular task field, so it travels through update_task.
+    `dependency_ids` are NOT a REST field — they're a Sync API property, so
+    `set_dependencies` collects writes and the `commit_dependencies` helper
+    flushes them in one batch.
+    """
 
     client: TodoistClient
+    _pending_dependencies: list[tuple[str, list[str]]] = field(default_factory=list)
 
     def create_task(self, body: dict) -> Optional[str]:
         out = self.client.request("POST", "/tasks", body=body)
@@ -351,6 +422,51 @@ class TodoistTransport:
             {"task_id": task_id, "content": content},
         )
 
+    def set_parent(self, task_id: str, parent_id: Optional[str]) -> None:
+        # `parent_id` is a writable task field on the REST API.
+        self.client.request(
+            "POST", f"/tasks/{task_id}",
+            body={"parent_id": parent_id},
+        )
+
+    def set_dependencies(self, task_id: str, dependency_ids: list[str]) -> None:
+        # Sync API is the only way to write dependency_ids; we accumulate
+        # and flush via `commit_dependencies()` after Pass 2.
+        self._pending_dependencies.append((task_id, dependency_ids))
+
+    def commit_dependencies(self) -> list[dict]:
+        """Flush queued dependency writes via the Sync API in one round-trip.
+
+        Returns one record per queued task: `{"task_id": ..., "deps": [...]}`.
+        Idempotent: empties the pending queue on success.
+        """
+        if not self._pending_dependencies:
+            return []
+        commands = [
+            {
+                "type": "item_update",
+                "uuid": f"dep-{task_id}",
+                "args": {
+                    "id": task_id,
+                    "dependency_ids": deps,
+                },
+            }
+            for task_id, deps in self._pending_dependencies
+        ]
+        body = {"commands": commands}
+        out = self.client.request("POST", "/sync", body=body)
+        records: list[dict] = []
+        for task_id, deps in self._pending_dependencies:
+            records.append({"task_id": task_id, "deps": list(deps)})
+        # Empty queue only after the request was issued (best-effort: any
+        # error will surface in the sync_status payload; we don't reject here).
+        self._pending_dependencies = []
+        if isinstance(out, dict):
+            status = out.get("sync_status", {}) or {}
+            for task_id, _ in self._pending_dependencies:
+                pass
+        return records
+
 
 @dataclass
 class RecordingTransport:
@@ -362,6 +478,7 @@ class RecordingTransport:
 
     calls: list[dict] = field(default_factory=list)
     _create_counter: int = 0
+    dependencies_flushed: list[dict] = field(default_factory=list)
 
     def create_task(self, body: dict) -> Optional[str]:
         self._create_counter += 1
@@ -382,6 +499,21 @@ class RecordingTransport:
         self.calls.append({
             "op": "comment", "task_id": task_id, "content": content,
         })
+
+    def set_parent(self, task_id: str, parent_id: Optional[str]) -> None:
+        self.calls.append({
+            "op": "set_parent", "task_id": task_id, "parent_id": parent_id,
+        })
+
+    def set_dependencies(self, task_id: str, dependency_ids: list[str]) -> None:
+        # RecordingTransport just collects; commit_dependencies moves them
+        # into `dependencies_flushed` so tests can assert per-task.
+        self.dependencies_flushed.append({
+            "task_id": task_id, "deps": list(dependency_ids),
+        })
+
+    def commit_dependencies(self) -> list[dict]:
+        return list(self.dependencies_flushed)
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +582,20 @@ def _mirror_comments(
     return added
 
 
+def _parent_issue_number(issue: dict) -> Optional[int]:
+    """Extract the parent issue number from `parent_issue_url`, if present.
+
+    `gh issue list` returns parent_issue_url like
+    `https://api.github.com/repos/owner/repo/issues/123` for sub-issues,
+    and `None` (or absent) for top-level issues.
+    """
+    url = issue.get("parent_issue_url")
+    if not url:
+        return None
+    m = re.search(r"/issues/(\d+)$", str(url))
+    return int(m.group(1)) if m else None
+
+
 def plan_actions(
     config: dict,
     issues: list[dict],
@@ -462,12 +608,17 @@ def plan_actions(
 ) -> list[dict]:
     """Walk every (project, repo, issue) and dispatch writes via `transport`.
 
+    Two-pass layout: Pass 1 creates/updates each task; Pass 2 wires up
+    parent_id (sub-task) and dependency_ids (blocked_by) for any task that
+    was just created or already exists. Pass 2 runs once at the end so
+    parent tasks are guaranteed to have a Todoist id before children link.
+
     `fetch_task_comments_fn(task_id)` returns existing Todoist comments for
     idempotent mirroring. When omitted, comment sync is skipped entirely
     (callers in production must supply it for full idempotency).
 
     Returns an action log: one dict per issue with `owner/repo/number/action`
-    plus action-specific extras.
+    plus action-specific extras (parent / deps applied).
     """
     project_by_repo: dict[tuple[str, str], dict] = {}
     for proj in config["projects"]:
@@ -475,6 +626,12 @@ def plan_actions(
             project_by_repo[(proj["github_owner"], r)] = proj
 
     log: list[dict] = []
+    # Pass 2 plan — one entry per open issue that needs parent or deps.
+    # Each entry: {key, parent_target: Optional[str], deps_targets: list[str]}
+    pending_links: list[dict] = []
+    # Track which keys we created in this run, so children can resolve
+    # parents that don't have an existing Todoist task yet.
+    just_created: dict[tuple[str, str, int], str] = {}
 
     def _no_comments(task_id):
         return []
@@ -551,6 +708,7 @@ def plan_actions(
                 "action": "updated",
                 "comments_added": added,
             })
+            self_task_id = existing["id"]
         else:
             create_body = dict(body)
             create_body["project_id"] = project_id
@@ -569,6 +727,68 @@ def plan_actions(
                 "action": "created",
                 "comments_added": added,
             })
+            self_task_id = new_id
+            just_created[key] = new_id
+
+        # Queue parent + deps for Pass 2.
+        parent_num = _parent_issue_number(issue)
+        blocked_by = issue.get("blocked_by_numbers") or []
+        pending_links.append({
+            "key": key,
+            "self_task_id": self_task_id,
+            "parent_number": parent_num,
+            "blocked_by_numbers": list(blocked_by),
+        })
+
+    # Pass 2: resolve parent + blocker keys to Todoist task ids and apply.
+    def _resolve(key: tuple[str, str, int]) -> Optional[str]:
+        return (
+            todoist_tasks_by_issue.get(key, {}).get("id")
+            or just_created.get(key)
+        )
+
+    for entry in pending_links:
+        owner, repo_name, _ = entry["key"]
+        self_task_id = entry["self_task_id"]
+
+        # Sub-task parent: link if parent's Todoist task is known.
+        parent_target: Optional[str] = None
+        if entry["parent_number"] is not None:
+            parent_target = _resolve((owner, repo_name, entry["parent_number"]))
+
+        # Blockers: resolve each to a Todoist task id (skip unknown).
+        deps_targets: list[str] = []
+        for n in entry["blocked_by_numbers"]:
+            t = _resolve((owner, repo_name, n))
+            if t:
+                deps_targets.append(t)
+
+        applied: dict = {}
+        if entry["parent_number"] is not None:
+            transport.set_parent(self_task_id, parent_target)
+            applied["parent"] = {
+                "github_number": entry["parent_number"],
+                "linked": parent_target is not None,
+            }
+        if entry["blocked_by_numbers"]:
+            transport.set_dependencies(self_task_id, deps_targets)
+            applied["blocked_by"] = {
+                "github_numbers": list(entry["blocked_by_numbers"]),
+                "linked": deps_targets,
+            }
+        if applied:
+            for log_entry in log:
+                if (
+                    log_entry.get("owner") == owner
+                    and log_entry.get("repo") == repo_name
+                    and log_entry.get("number") == entry["key"][2]
+                ):
+                    log_entry.setdefault("links", {}).update(applied)
+                    break
+
+    # Flush queued dependency writes via Sync API (no-op if no deps queued).
+    transport.commit_dependencies()
+
     return log
 
 
@@ -579,16 +799,27 @@ def plan_actions(
 
 def _collect_issues(
     config: dict, runner: GhRunner,
+    *,
+    fetch_blocked_by_fn: Optional[Callable[[str, str, int], list[int]]] = None,
 ) -> tuple[list[dict], dict[tuple[str, str, int], tuple[Optional[str], Optional[str]]], list[str]]:
     """Fetch every issue in the config + aggregate Project dates.
+
+    For each issue whose `issue_dependencies_summary.blocked_by > 0`, fetch
+    the blocking issue numbers via `fetch_blocked_by_fn` (production uses
+    the REST detail endpoint). The blocking list is attached to the issue
+    dict as `blocked_by_numbers` for downstream consumption.
 
     Returns (issues, project_dates_map, warnings). Each warning is a
     human-readable string for one project board whose dates couldn't be
     fetched — the caller (CLI or test) decides whether to surface or fail.
     """
+    fetch_by = fetch_blocked_by_fn or (
+        lambda o, r, n: fetch_blocked_by(runner, o, r, n)
+    )
     issues: list[dict] = []
     project_dates: dict[tuple[str, str, int], tuple[Optional[str], Optional[str]]] = {}
     warnings: list[str] = []
+    soft_warnings: list[str] = []
     for proj in config["projects"]:
         owner = proj["github_owner"]
         proj_num = proj.get("github_project_number")
@@ -598,12 +829,27 @@ def _collect_issues(
             if warn:
                 warnings.append(warn)
         for repo in proj["github_repos"]:
-            for raw in fetch_issues(runner, owner, repo):
+            rows, gh_warn = fetch_issues(runner, owner, repo)
+            if gh_warn:
+                # gh CLI doesn't support parent/blocked_by fields → soft
+                # warning. We still run the sync (basic features unaffected);
+                # the warning just notes that sub-task / blocked-by are
+                # skipped for this run.
+                soft_warnings.append(gh_warn)
+            for raw in rows:
                 enriched = dict(raw)
                 enriched["repo_owner"] = owner
                 enriched["repo_name"] = repo
+                summary = enriched.get("issue_dependencies_summary") or {}
+                blocked = int(summary.get("blocked_by") or 0)
+                if blocked > 0:
+                    enriched["blocked_by_numbers"] = fetch_by(
+                        owner, repo, enriched["number"]
+                    )
+                else:
+                    enriched["blocked_by_numbers"] = []
                 issues.append(enriched)
-    return issues, project_dates, warnings
+    return issues, project_dates, warnings, soft_warnings
 
 
 def _summarise(log: list[dict]) -> dict[str, int]:
@@ -641,7 +887,7 @@ def main(argv=None) -> int:
 
     runner = GhRunner()
     client = TodoistClient(token=token)
-    issues, project_dates, warnings = _collect_issues(config, runner)
+    issues, project_dates, warnings, soft_warnings = _collect_issues(config, runner)
     # Surface project-dates warnings immediately. dry-run keeps going (so
     # operators can still inspect the would_call output); apply refuses so we
     # never silently write Todoist tasks without the dates the operator
@@ -656,6 +902,10 @@ def main(argv=None) -> int:
             file=sys.stderr,
         )
         return 2
+    # Soft warnings (e.g. gh too old for sub-task / blocked-by fields) are
+    # informational only: we still run the sync for everything else.
+    for w in soft_warnings:
+        print(w, file=sys.stderr)
     tasks = client.get("/tasks")
     tasks_by_issue = {
         (m_owner, m_repo, m_num): t
@@ -688,6 +938,8 @@ def main(argv=None) -> int:
         payload["would_call"] = transport.calls
     if warnings:
         payload["warnings"] = warnings
+    if soft_warnings:
+        payload["soft_warnings"] = soft_warnings
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 

@@ -10,6 +10,7 @@ import sys
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _loader import load_module
@@ -25,8 +26,10 @@ managed_tasks = _sync_mod.managed_tasks
 LABEL = _sync_mod.LABEL
 DATE_LOCK_LABEL = _sync_mod.DATE_LOCK_LABEL
 RecordingTransport = _sync_mod.RecordingTransport
+TodoistTransport = _sync_mod.TodoistTransport
 fetch_task_comments = _sync_mod.fetch_task_comments
 fetch_project_dates = _sync_mod.fetch_project_dates
+fetch_blocked_by = _sync_mod.fetch_blocked_by
 main = _sync_mod.main
 
 
@@ -62,11 +65,18 @@ def _issue(
     state: str = "OPEN", body: str = "body text",
     url: str = "https://example.com",
     comments: list | None = None,
+    parent_issue_url: object = None,
+    blocked_by_numbers: list | None = None,
+    issue_dependencies_summary: dict | None = None,
 ) -> dict:
     return {
         "number": n, "title": title, "state": state,
         "url": url, "body": body, "comments": comments or [],
         "repo_owner": owner, "repo_name": repo,
+        "parent_issue_url": parent_issue_url,
+        "sub_issues_summary": {},
+        "issue_dependencies_summary": issue_dependencies_summary or {},
+        "blocked_by_numbers": list(blocked_by_numbers or []),
     }
 
 
@@ -559,6 +569,446 @@ class CliTests(unittest.TestCase):
             self.assertIn("not valid JSON", err.getvalue())
         finally:
             bad.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Sub-task (parent_id) + blocked-by (dependency) link tests
+# ---------------------------------------------------------------------------
+
+
+class _PARENT_URL:  # Lazy helper — matches the REST API format.
+    """Return a GitHub API URL for `owner/repo/issues/parent_num`."""
+
+    def __init__(self, owner: str, repo: str, parent_num: int):
+        self.url = f"https://api.github.com/repos/{owner}/{repo}/issues/{parent_num}"
+
+    def __str__(self):
+        return self.url
+
+    def __bool__(self):
+        return True
+
+
+class SubtaskParentTests(unittest.TestCase):
+
+    def _run(self, issues, tasks_by_issue=None):
+        cfg = _basic_config()
+        transport = RecordingTransport()
+        log = plan_actions(
+            cfg, issues, tasks_by_issue or {}, {},
+            _projects_by_name(), transport,
+        )
+        return log, transport
+
+    def test_subtask_parent_is_set_when_parent_exists(self):
+        """child issue has parent_issue_url and parent Todoist task exists."""
+        parent_key = ("tetra4rnav", "RZDC_Philippines_VH", 10)
+        child_key = ("tetra4rnav", "RZDC_Philippines_VH", 11)
+        issues = [
+            _issue(*parent_key, title="parent issue",
+                   parent_issue_url=None),
+            _issue(*child_key, title="child issue",
+                   parent_issue_url=_PARENT_URL(*parent_key)),
+        ]
+        # Parent already has a Todoist task.
+        existing = {
+            parent_key: {"id": "t-parent", "labels": [LABEL],
+                         "project_id": "p1", "description": ""},
+        }
+        log, transport = self._run(issues, existing)
+        child_entry = [e for e in log if e.get("number") == 11]
+        self.assertTrue(child_entry)
+        self.assertIn("links", child_entry[0])
+        self.assertIn("parent", child_entry[0]["links"])
+        self.assertTrue(child_entry[0]["links"]["parent"]["linked"])
+        # Check the set_parent call was recorded.
+        set_parents = [c for c in transport.calls if c["op"] == "set_parent"]
+        self.assertEqual(len(set_parents), 1)
+        self.assertEqual(set_parents[0]["parent_id"], "t-parent")
+
+    def test_subtask_parent_set_when_parent_also_new(self):
+        """Both parent + child are new; both created in Pass 1.
+
+        Pass 2 must resolve the parent from `just_created` and wire it.
+        """
+        parent_key = ("tetra4rnav", "RZDC_Philippines_VH", 20)
+        child_key = ("tetra4rnav", "RZDC_Philippines_VH", 21)
+        issues = [
+            _issue(*parent_key, parent_issue_url=None),
+            _issue(*child_key,
+                   parent_issue_url=_PARENT_URL(*parent_key)),
+        ]
+        log, transport = self._run(issues)
+        child_entry = [e for e in log if e.get("number") == 21]
+        self.assertTrue(child_entry)
+        self.assertIn("links", child_entry[0])
+        self.assertTrue(child_entry[0]["links"]["parent"]["linked"])
+        # Parent should also be in the create calls.
+        creates = [c for c in transport.calls if c["op"] == "create"]
+        self.assertEqual(len(creates), 2)  # parent + child
+        # And exactly one set_parent was recorded (for the child only).
+        set_parents = [c for c in transport.calls if c["op"] == "set_parent"]
+        self.assertEqual(len(set_parents), 1)
+        # The parent id should be a synthetic created id.
+        self.assertIn("<created-", set_parents[0]["parent_id"])
+
+    def test_top_level_issue_has_no_parent_link(self):
+        """An issue with no parent_issue_url produces no set_parent call."""
+        issues = [_issue("tetra4rnav", "RZDC_Philippines_VH", 1,
+                         parent_issue_url=None)]
+        log, transport = self._run(issues)
+        set_parents = [c for c in transport.calls if c["op"] == "set_parent"]
+        self.assertEqual(set_parents, [])
+        # Also no `links` key in the log entry.
+        self.assertNotIn("links", log[0])
+
+    def test_parent_not_in_todoist_skips_link(self):
+        """If the parent issue was never synced to Todoist, parent is not set."""
+        parent_key = ("tetra4rnav", "RZDC_Philippines_VH", 30)
+        child_key = ("tetra4rnav", "RZDC_Philippines_VH", 31)
+        issues = [
+            _issue(*parent_key, title="parent", state="OPEN",
+                   parent_issue_url=None),
+            _issue(*child_key, title="child",
+                   parent_issue_url=_PARENT_URL(*parent_key)),
+        ]
+        # Neither issue has an existing Todoist task; parent is OPEN so it
+        # WILL be created in Pass 1, so it WILL get linked.
+        log, transport = self._run(issues)
+        set_parents = [c for c in transport.calls if c["op"] == "set_parent"]
+        self.assertEqual(len(set_parents), 1)
+        self.assertIn("<created-", set_parents[0]["parent_id"])
+
+    def test_closed_parent_not_in_todoist(self):
+        """A closed parent that was never synced should NOT be auto-created.
+
+        Only OPEN issues are created/updated by plan_actions.
+        """
+        parent_key = ("tetra4rnav", "RZDC_Philippines_VH", 40)
+        child_key = ("tetra4rnav", "RZDC_Philippines_VH", 41)
+        issues = [
+            _issue(*parent_key, state="CLOSED",
+                   parent_issue_url=None),
+            _issue(*child_key,
+                   parent_issue_url=_PARENT_URL(*parent_key)),
+        ]
+        log, transport = self._run(issues)
+        child_entry = [e for e in log if e.get("number") == 41]
+        self.assertTrue(child_entry)
+        # Parent was CLOSED + not in Todoist → Pass 1 skipped it (closed),
+        # so Pass 2 cannot resolve a parent_id. linked must be False.
+        self.assertFalse(child_entry[0]["links"]["parent"]["linked"])
+        # Github number is still recorded so we can audit.
+        self.assertEqual(child_entry[0]["links"]["parent"]["github_number"], 40)
+
+
+class BlockedByDependencyTests(unittest.TestCase):
+
+    def _run(self, issues, tasks_by_issue=None):
+        cfg = _basic_config()
+        transport = RecordingTransport()
+        log = plan_actions(
+            cfg, issues, tasks_by_issue or {}, {},
+            _projects_by_name(), transport,
+        )
+        return log, transport
+
+    def test_blocked_by_creates_dependency(self):
+        """Child issue blocked by parent; both open, both exist in Todoist."""
+        blocker_key = ("tetra4rnav", "RZDC_Philippines_VH", 50)
+        blocked_key = ("tetra4rnav", "RZDC_Philippines_VH", 51)
+        issues = [
+            _issue(*blocker_key, title="blocker", blocked_by_numbers=[]),
+            _issue(*blocked_key, title="blocked",
+                   blocked_by_numbers=[50]),
+        ]
+        existing = {
+            blocker_key: {"id": "t-blocker", "labels": [LABEL],
+                          "project_id": "p1", "description": ""},
+            blocked_key: {"id": "t-blocked", "labels": [LABEL],
+                          "project_id": "p1", "description": ""},
+        }
+        log, transport = self._run(issues, existing)
+        blocked_entry = [e for e in log if e.get("number") == 51]
+        self.assertTrue(blocked_entry)
+        self.assertIn("links", blocked_entry[0])
+        self.assertIn("blocked_by", blocked_entry[0]["links"])
+        self.assertEqual(
+            blocked_entry[0]["links"]["blocked_by"]["linked"],
+            ["t-blocker"],
+        )
+        # Check the dependency was queued and flushed.
+        self.assertEqual(len(transport.dependencies_flushed), 1)
+        self.assertEqual(transport.dependencies_flushed[0]["task_id"],
+                         "t-blocked")
+        self.assertEqual(transport.dependencies_flushed[0]["deps"],
+                         ["t-blocker"])
+
+    def test_blocked_by_self_created(self):
+        """Blocked issue is new; blocker is new; both created in Pass 1.
+
+        Pass 2 must resolve both from `just_created` and queue deps.
+        """
+        blocker_key = ("tetra4rnav", "RZDC_Philippines_VH", 60)
+        blocked_key = ("tetra4rnav", "RZDC_Philippines_VH", 61)
+        issues = [
+            _issue(*blocker_key, blocked_by_numbers=[]),
+            _issue(*blocked_key, blocked_by_numbers=[60]),
+        ]
+        log, transport = self._run(issues)
+        blocked_entry = [e for e in log if e.get("number") == 61]
+        self.assertTrue(blocked_entry[0]["links"]["blocked_by"]["linked"])
+        # Both were created as new tasks.
+        creates = [c for c in transport.calls if c["op"] == "create"]
+        self.assertEqual(len(creates), 2)
+        # Dependency was queued for blocked issue.
+        self.assertEqual(len(transport.dependencies_flushed), 1)
+        self.assertEqual(transport.dependencies_flushed[0]["task_id"],
+                         "<created-2>")
+        self.assertEqual(transport.dependencies_flushed[0]["deps"],
+                         ["<created-1>"])
+
+    def test_no_deps_when_blocked_by_empty(self):
+        """An issue with empty blocked_by_numbers produces no dependency."""
+        issues = [
+            _issue("tetra4rnav", "RZDC_Philippines_VH", 70,
+                   blocked_by_numbers=[]),
+        ]
+        log, transport = self._run(issues)
+        self.assertNotIn("links", log[0])
+        self.assertEqual(transport.dependencies_flushed, [])
+
+    def test_missing_blocker_not_linked(self):
+        """If the blocker issue was never synced, skip it silently."""
+        blocked_key = ("tetra4rnav", "RZDC_Philippines_VH", 81)
+        issues = [
+            _issue(*blocked_key, blocked_by_numbers=[80]),
+        ]
+        log, transport = self._run(issues)
+        blocked_entry = [e for e in log if e.get("number") == 81]
+        self.assertTrue(blocked_entry)
+        self.assertIn("links", blocked_entry[0])
+        # The blocker's issue 80 was not in the issue list / Todoist, so
+        # the linked list is empty but the keys are recorded.
+        self.assertEqual(blocked_entry[0]["links"]["blocked_by"]["linked"], [])
+
+    def test_combined_parent_and_blocked_by(self):
+        """Issue has BOTH a parent sub-issue AND a blocker dependency."""
+        parent_key = ("tetra4rnav", "RZDC_Philippines_VH", 90)
+        blocker_key = ("tetra4rnav", "RZDC_Philippines_VH", 91)
+        child_key = ("tetra4rnav", "RZDC_Philippines_VH", 92)
+        issues = [
+            _issue(*parent_key, parent_issue_url=None, blocked_by_numbers=[]),
+            _issue(*blocker_key, blocked_by_numbers=[]),
+            _issue(*child_key,
+                   parent_issue_url=_PARENT_URL(*parent_key),
+                   blocked_by_numbers=[91]),
+        ]
+        existing = {
+            parent_key: {"id": "t-parent", "labels": [LABEL],
+                         "project_id": "p1", "description": ""},
+            blocker_key: {"id": "t-blocker", "labels": [LABEL],
+                          "project_id": "p1", "description": ""},
+        }
+        log, transport = self._run(issues, existing)
+        child_entry = [e for e in log if e.get("number") == 92]
+        self.assertTrue(child_entry)
+        links = child_entry[0]["links"]
+        self.assertTrue(links["parent"]["linked"])
+        self.assertEqual(links["parent"]["github_number"], 90)
+        self.assertTrue(links["blocked_by"]["linked"])
+        self.assertEqual(links["blocked_by"]["github_numbers"], [91])
+        # set_parent + 1 dependency in flushed queue.
+        set_parents = [c for c in transport.calls if c["op"] == "set_parent"]
+        self.assertEqual(len(set_parents), 1)
+        self.assertEqual(set_parents[0]["parent_id"], "t-parent")
+        self.assertEqual(len(transport.dependencies_flushed), 1)
+
+    def test_closed_blocked_issue_not_linked(self):
+        """A closed blocker that was never synced is not auto-created."""
+        blocker_key = ("tetra4rnav", "RZDC_Philippines_VH", 100)
+        blocked_key = ("tetra4rnav", "RZDC_Philippines_VH", 101)
+        issues = [
+            _issue(*blocker_key, state="CLOSED", blocked_by_numbers=[]),
+            _issue(*blocked_key, blocked_by_numbers=[100]),
+        ]
+        log, transport = self._run(issues)
+        blocked_entry = [e for e in log if e.get("number") == 101]
+        self.assertTrue(blocked_entry)
+        # Blocker is CLOSED + never synced → not created → not linked.
+        self.assertEqual(blocked_entry[0]["links"]["blocked_by"]["linked"], [])
+        self.assertEqual(
+            blocked_entry[0]["links"]["blocked_by"]["github_numbers"], [100],
+        )
+
+
+class FetchIssuesTests(unittest.TestCase):
+
+    def _make_fake_runner(self, *calls):
+        """GhRunner fake that returns one (rc, payload) per call.
+
+        Each call arg may be a list (interpreted as rc=0 + that JSON) or
+        a tuple `(rc, list_or_str)`. After all configured calls, returns
+        rc=1 to signal error.
+        """
+
+        class FakeRunner:
+            def __init__(self):
+                self._call_count = 0
+            def run(self, args, timeout=60):
+                self._call_count += 1
+                if self._call_count > len(calls):
+                    return (1, "", "fallback error")
+                spec = calls[self._call_count - 1]
+                if isinstance(spec, tuple):
+                    rc, payload = spec
+                else:
+                    rc, payload = 0, spec
+                return (rc, json.dumps(payload) if payload is not None else "", "")
+
+        return FakeRunner()
+
+    def test_sets_parent_issue_url_default_when_omitted(self):
+        """When gh returns rc=0 but omits the extra fields, defaults are
+        applied (parent_issue_url=None, summary={}) so downstream code can
+        read them unconditionally."""
+        runner = self._make_fake_runner([
+            {"number": 1, "title": "test", "state": "OPEN",
+             "url": "https://example.com", "body": "", "comments": []},
+        ])
+        from github_todoist_sync import fetch_issues
+        issues, warn = fetch_issues(runner, "owner", "repo")
+        # rc=0 means gh accepted the extra-fields request; no warning.
+        self.assertIsNone(warn)
+        self.assertEqual(len(issues), 1)
+        self.assertIsNone(issues[0]["parent_issue_url"])
+        self.assertEqual(issues[0]["issue_dependencies_summary"], {})
+
+    def test_warns_when_gh_rejects_extra_fields(self):
+        """When gh returns rc != 0 (older version), an upgrade warning is
+        surfaced and the baseline fetch is used as a fallback."""
+        # First call: rc=1 (older gh rejects extra fields).
+        # Second call: rc=0 with baseline JSON.
+        runner = self._make_fake_runner(
+            (1, []),  # extra-fields call rejected
+            [
+                {"number": 1, "title": "test", "state": "OPEN",
+                 "url": "https://example.com", "body": "", "comments": []},
+            ],  # baseline call succeeds
+        )
+        from github_todoist_sync import fetch_issues
+        issues, warn = fetch_issues(runner, "owner", "repo")
+        self.assertIsNotNone(warn)
+        self.assertIn("parent_issue_url", warn)
+        self.assertIn("Upgrade", warn)
+        self.assertEqual(len(issues), 1)
+        self.assertIsNone(issues[0]["parent_issue_url"])
+
+    def test_preserves_parent_issue_url_when_present(self):
+        runner = self._make_fake_runner([
+            {"number": 1, "title": "child", "state": "OPEN",
+             "url": "https://example.com", "body": "", "comments": [],
+             "parent_issue_url": "https://api.github.com/repos/o/r/issues/5",
+             "issue_dependencies_summary": {"blocked_by": 0, "blocking": 0}},
+        ])
+        from github_todoist_sync import fetch_issues
+        issues, warn = fetch_issues(runner, "owner", "repo")
+        # Happy path: no upgrade warning.
+        self.assertIsNone(warn)
+        self.assertEqual(
+            issues[0]["parent_issue_url"],
+            "https://api.github.com/repos/o/r/issues/5",
+        )
+
+
+class FetchBlockedByTests(unittest.TestCase):
+
+    def test_returns_issue_numbers(self):
+        class FakeRunner:
+            def run(self, args, timeout=60):
+                return (0, json.dumps([
+                    {"number": 5, "title": "blocker"},
+                    {"number": 6, "title": "another blocker"},
+                ]), "")
+
+        from github_todoist_sync import fetch_blocked_by
+        result = fetch_blocked_by(FakeRunner(), "owner", "repo", 10)
+        self.assertEqual(result, [5, 6])
+
+    def test_returns_empty_on_error(self):
+        class FakeRunner:
+            def run(self, args, timeout=60):
+                return (1, "", "error")
+
+        from github_todoist_sync import fetch_blocked_by
+        result = fetch_blocked_by(FakeRunner(), "owner", "repo", 10)
+        self.assertEqual(result, [])
+
+    def test_returns_empty_on_non_array(self):
+        class FakeRunner:
+            def run(self, args, timeout=60):
+                return (0, "not json", "")
+
+        from github_todoist_sync import fetch_blocked_by
+        result = fetch_blocked_by(FakeRunner(), "owner", "repo", 10)
+        self.assertEqual(result, [])
+
+
+class TodoistTransportDependencyTests(unittest.TestCase):
+
+    def test_set_parent_calls_update(self):
+        """set_parent issues a POST /tasks/{id} with parent_id."""
+        client = mock.MagicMock()
+        client.request.return_value = None
+        t = TodoistTransport(client=client)
+        t.set_parent("task-1", "parent-1")
+        client.request.assert_called_once()
+        args, kwargs = client.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertEqual(args[1], "/tasks/task-1")
+        self.assertEqual(kwargs.get("body"), {"parent_id": "parent-1"})
+
+    def test_set_dependencies_accumulates(self):
+        client = mock.MagicMock()
+        client.request.return_value = None
+        t = TodoistTransport(client=client)
+        t.set_dependencies("task-a", ["blocker-1", "blocker-2"])
+        t.set_dependencies("task-b", ["blocker-3"])
+        self.assertEqual(len(t._pending_dependencies), 2)
+        self.assertEqual(t._pending_dependencies[0],
+                         ("task-a", ["blocker-1", "blocker-2"]))
+        # set_dependencies does NOT call client.request (queued for sync batch).
+        client.request.assert_not_called()
+
+    def test_commit_dependencies_flushes_via_sync(self):
+        client = mock.MagicMock()
+        client.request.return_value = {"sync_status": {}, "full_sync": True}
+        t = TodoistTransport(client=client)
+        t.set_dependencies("t1", ["b1"])
+        t.set_dependencies("t2", ["b2"])
+        records = t.commit_dependencies()
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["task_id"], "t1")
+        self.assertEqual(records[1]["task_id"], "t2")
+        # Verify the sync command body.
+        client.request.assert_called_once()
+        args, kwargs = client.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertEqual(args[1], "/sync")
+        cmds = kwargs["body"]["commands"]
+        self.assertEqual(len(cmds), 2)
+        self.assertEqual(cmds[0]["type"], "item_update")
+        self.assertEqual(cmds[0]["args"]["dependency_ids"], ["b1"])
+        self.assertEqual(cmds[1]["args"]["dependency_ids"], ["b2"])
+        # Pending queue is now empty.
+        self.assertEqual(t._pending_dependencies, [])
+
+    def test_commit_dependencies_noop_when_empty(self):
+        client = mock.MagicMock()
+        t = TodoistTransport(client=client)
+        self.assertEqual(t.commit_dependencies(), [])
+        # No request should have been issued.
+        client.request.assert_not_called()
 
 
 if __name__ == "__main__":

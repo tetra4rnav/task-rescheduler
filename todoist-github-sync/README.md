@@ -17,9 +17,44 @@ For every project in your config:
    the GitHub side disagrees, and closes them when the GitHub issue closes.
 5. Mirrors the GitHub issue body and comments to Todoist task comments,
    idempotently — re-runs only post what's new.
+6. Wires up **parent / dependency** links between Todoist tasks so the
+   Todoist-side tree mirrors the GitHub-side relationships (see below).
 
 GitHub is authoritative. Todoist-side edits to **duration**, **priority**,
 and other fields not present on the GitHub side are never overwritten.
+
+## Relationship sync (sub-task + blocked-by)
+
+The sync engine maps GitHub's two distinct issue-relationship primitives to
+their Todoist equivalents. Both run in a **second pass** so newly-created
+parent tasks exist before children link to them.
+
+| GitHub relationship | Where it lives | Todoist mapping |
+|---|---|---|
+| **Sub-issue** (`parent_issue_url` on the child) | `gh issue list --json parent_issue_url` | **sub-task** (`parent_id` field, hierarchical grouping only) |
+| **Blocked by** (`issue_dependencies_summary.blocked_by`) | `GET /repos/{o}/{r}/issues/{n}/dependencies/blocked_by` | **task dependency** (`dependency_ids` via Sync API — gating enforcement) |
+
+Notes:
+
+- Issues with **neither** relationship continue to sync as plain top-level
+  Todoist tasks (unchanged from the previous behaviour).
+- A closed parent/blocker that was never synced to Todoist is **not**
+  auto-created — child / blocked tasks record the GitHub issue number in
+  their action log so an operator can investigate.
+- `set_parent` writes through the REST API (regular task field);
+  `set_dependencies` queues per-task and flushes via the Sync API in one
+  batch (REST does not expose `dependency_ids`).
+- The parent / dependency links are emitted **after** Pass 1 finishes all
+  create/update writes, so parents created in the same run get wired up to
+  their children without a follow-up run.
+
+### Requirements for relationship sync
+
+- `gh` CLI **>= 2.86.0** (released August 2025) — required for the
+  `parent_issue_url`, `sub_issues_summary`, and `issue_dependencies_summary`
+  JSON fields on `gh issue list`. Older versions emit a clear warning on
+  stderr and skip the relationship writes for that run while still performing
+  the regular task sync.
 
 ## Schema
 
