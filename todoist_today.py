@@ -23,7 +23,7 @@ import urllib.request
 from datetime import datetime
 
 API_BASE = "https://api.todoist.com/api/v1/tasks"
-LOCAL_ZONE = "America/New_York"  # EDT/EST (Matt's operational timezone)
+LOCAL_ZONE = "UTC"
 
 
 def fetch_tasks(token):

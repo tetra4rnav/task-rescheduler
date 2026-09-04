@@ -17,7 +17,7 @@ import urllib.parse
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-LOCAL_TZ = ZoneInfo("America/New_York")  # Matt の運用タイムゾーン (EDT)
+LOCAL_TZ = ZoneInfo("UTC")  # Hermes-wide operational timezone (Matt 2026-09-04 directive)
 
 
 def utc_to_local(ts):

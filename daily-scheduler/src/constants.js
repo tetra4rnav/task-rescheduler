@@ -4,14 +4,16 @@ export const PLAN_SCHEMA_VERSION = '1.1';
 export const TODOIST_API_BASE_URL = 'https://api.todoist.com/api/v1';
 export const MANAGED_BY = 'task-rescheduler';
 export const DESCRIPTION_MARKER_KEY = 'TETRA_TODOIST_TASK_ID';
-export const DEFAULT_TIMEZONE = 'America/New_York';
+export const DEFAULT_TIMEZONE = 'UTC';
 export const DEFAULT_TODOIST_TIMEZONE = DEFAULT_TIMEZONE;
 export const DEFAULT_ACCOUNT = 'your-email-at-provider.example';
 export const DEFAULT_CALENDAR_IDS = ['primary'];
-export const DEFAULT_WORKING_HOURS = '09:00-18:00';
+// Work window in UTC. 10:00-24:00 covers the whole day (24:00 == next 00:00Z),
+// so max-daily is formal-only and effectively off.
+export const DEFAULT_WORKING_HOURS = '10:00-24:00';
 export const DEFAULT_LUNCH_HOURS = '12:00-13:00';
 export const DEFAULT_DAYS = 3;
-export const DEFAULT_MAX_DAILY_MINUTES = 360;
+export const DEFAULT_MAX_DAILY_MINUTES = 1440;
 export const DEFAULT_MIN_BREAK_MINUTES = 15;
 export const DEFAULT_PREP_MINUTES = 15;
 export const DEFAULT_AUTO_SCHEDULE_LABEL = 'auto-schedule';

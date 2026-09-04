@@ -8,7 +8,7 @@ data; this script only reads and renders them together. Deterministic, LLM-free.
 Output:
   --html DIR   -> writes DIR/today_dashboard.html (default below)
   --json       -> print JSON to stdout instead of writing HTML
-Timezone: America/New_York (EDT/EST, Matt's operational timezone).
+Timezone: UTC. All timestamps in this dashboard are Zulu-suffixed (e.g. 2300Z).
 """
 
 import argparse
@@ -23,7 +23,7 @@ from collections import defaultdict
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-LOCAL_ZONE = "America/New_York"
+LOCAL_ZONE = "UTC"
 import project_registry  # single source of truth — replaces scripts/repo_registry.json
 TODAY_API = "https://api.todoist.com/api/v1/tasks"
 

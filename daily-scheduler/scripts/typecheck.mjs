@@ -21,7 +21,7 @@ const options = {
   mode: 'dry-run',
   date: '2026-03-08',
   days: 3,
-  timezone: 'America/New_York',
+  timezone: 'UTC',
   todoistTimezone: 'Asia/Tokyo',
   account: 'your-email-at-provider.example',
   calendars: ['primary'],

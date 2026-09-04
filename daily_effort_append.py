@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 API = "https://api.todoist.com/api/v1"
 ROOT = Path(__file__).resolve().parents[1]
-TZ = ZoneInfo("America/New_York")
+TZ = ZoneInfo("UTC")
 START = "<!-- tetra:daily-effort:start -->"
 END = "<!-- tetra:daily-effort:end -->"
 
@@ -64,7 +64,7 @@ def main():
     if not rows: lines.append("| No scheduled project tasks | 0 | 0 |")
     lines += ["", END]
     path = ROOT / "memory" / f"{day}.md"
-    text = path.read_text() if path.exists() else f"# {day}\n\nActivity timezone: America/New_York\n"
+    text = path.read_text() if path.exists() else f"# {day}\n\nActivity timezone: UTC\n"
     block = "\n".join(lines)
     pattern = re.compile(re.escape(START) + r".*?" + re.escape(END), re.S)
     text = pattern.sub(block, text) if pattern.search(text) else text.rstrip() + "\n\n" + block + "\n"

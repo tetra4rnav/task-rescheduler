@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 HUB = ROOT / "memory" / "project-hub-master.md"
 PROJECT_MAP = ROOT / "PROJECT_MAP.md"
-TZ = ZoneInfo("America/New_York")
+TZ = ZoneInfo("UTC")
 
 START = "<!-- hub-portfolio:start -->"
 END = "<!-- hub-portfolio:end -->"

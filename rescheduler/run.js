@@ -13,14 +13,16 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const WORKSPACE = path.resolve(__dirname, '..', '..');
-const SCHEDULER = path.join(WORKSPACE, 'scripts', 'daily-scheduler', 'bin', 'daily-scheduler.js');
+// Repo layout: repo_root/{rescheduler,daily-scheduler,...}. run.js lives in rescheduler/.
+// WORKSPACE = repo root; SCHEDULER points at the planner binary.
+const WORKSPACE = path.resolve(__dirname, '..');
+const SCHEDULER = path.join(WORKSPACE, 'daily-scheduler', 'bin', 'daily-scheduler.js');
 const ARTIFACT_ROOT = process.env.RESCHEDULER_ARTIFACT_DIR || '/tmp/rescheduler';
 
-const DEFAULT_TZ = 'America/New_York';
+const DEFAULT_TZ = 'UTC';
 const DEFAULT_DAYS = 3;
-const DEFAULT_WORKING_HOURS = '09:00-18:00';
-const DEFAULT_MAX_DAILY = 360;
+const DEFAULT_WORKING_HOURS = '10:00-24:00';
+const DEFAULT_MAX_DAILY = 1440;
 const DEFAULT_MIN_BREAK = 15;
 
 function parseArgs(argv) {
