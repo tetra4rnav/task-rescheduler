@@ -621,10 +621,9 @@ class SubtaskParentTests(unittest.TestCase):
         self.assertIn("links", child_entry[0])
         self.assertIn("parent", child_entry[0]["links"])
         self.assertTrue(child_entry[0]["links"]["parent"]["linked"])
-        # Check the set_parent call was recorded.
-        set_parents = [c for c in transport.calls if c["op"] == "set_parent"]
-        self.assertEqual(len(set_parents), 1)
-        self.assertEqual(set_parents[0]["parent_id"], "t-parent")
+        # Check the parent write was queued (Sync API batch).
+        self.assertEqual(len(transport.parents_flushed), 1)
+        self.assertEqual(transport.parents_flushed[0]["parent_id"], "t-parent")
 
     def test_subtask_parent_set_when_parent_also_new(self):
         """Both parent + child are new; both created in Pass 1.
@@ -646,19 +645,17 @@ class SubtaskParentTests(unittest.TestCase):
         # Parent should also be in the create calls.
         creates = [c for c in transport.calls if c["op"] == "create"]
         self.assertEqual(len(creates), 2)  # parent + child
-        # And exactly one set_parent was recorded (for the child only).
-        set_parents = [c for c in transport.calls if c["op"] == "set_parent"]
-        self.assertEqual(len(set_parents), 1)
+        # And exactly one parent was queued (for the child only).
+        self.assertEqual(len(transport.parents_flushed), 1)
         # The parent id should be a synthetic created id.
-        self.assertIn("<created-", set_parents[0]["parent_id"])
+        self.assertIn("<created-", transport.parents_flushed[0]["parent_id"])
 
     def test_top_level_issue_has_no_parent_link(self):
         """An issue with no parent_issue_url produces no set_parent call."""
         issues = [_issue("tetra4rnav", "RZDC_Philippines_VH", 1,
                          parent_issue_url=None)]
         log, transport = self._run(issues)
-        set_parents = [c for c in transport.calls if c["op"] == "set_parent"]
-        self.assertEqual(set_parents, [])
+        self.assertEqual(transport.parents_flushed, [])
         # Also no `links` key in the log entry.
         self.assertNotIn("links", log[0])
 
@@ -675,9 +672,8 @@ class SubtaskParentTests(unittest.TestCase):
         # Neither issue has an existing Todoist task; parent is OPEN so it
         # WILL be created in Pass 1, so it WILL get linked.
         log, transport = self._run(issues)
-        set_parents = [c for c in transport.calls if c["op"] == "set_parent"]
-        self.assertEqual(len(set_parents), 1)
-        self.assertIn("<created-", set_parents[0]["parent_id"])
+        self.assertEqual(len(transport.parents_flushed), 1)
+        self.assertIn("<created-", transport.parents_flushed[0]["parent_id"])
 
     def test_closed_parent_not_in_todoist(self):
         """A closed parent that was never synced should NOT be auto-created.
@@ -819,9 +815,8 @@ class BlockedByDependencyTests(unittest.TestCase):
         self.assertTrue(links["blocked_by"]["linked"])
         self.assertEqual(links["blocked_by"]["github_numbers"], [91])
         # set_parent + 1 dependency in flushed queue.
-        set_parents = [c for c in transport.calls if c["op"] == "set_parent"]
-        self.assertEqual(len(set_parents), 1)
-        self.assertEqual(set_parents[0]["parent_id"], "t-parent")
+        self.assertEqual(len(transport.parents_flushed), 1)
+        self.assertEqual(transport.parents_flushed[0]["parent_id"], "t-parent")
         self.assertEqual(len(transport.dependencies_flushed), 1)
 
     def test_closed_blocked_issue_not_linked(self):
@@ -881,8 +876,12 @@ class FetchIssuesTests(unittest.TestCase):
         # rc=0 means gh accepted the extra-fields request; no warning.
         self.assertIsNone(warn)
         self.assertEqual(len(issues), 1)
-        self.assertIsNone(issues[0]["parent_issue_url"])
-        self.assertEqual(issues[0]["issue_dependencies_summary"], {})
+        self.assertIsNone(issues[0]["parent"])
+        self.assertEqual(issues[0]["blockedBy"], [])
+        # Bridge synthesizes the synthetic fields when gh-native data is
+        # missing, so downstream code can read them unconditionally.
+        self.assertIsNone(issues[0].get("parent_issue_url"))
+        self.assertEqual(issues[0].get("blocked_by_numbers"), [])
 
     def test_warns_when_gh_rejects_extra_fields(self):
         """When gh returns rc != 0 (older version), an upgrade warning is
@@ -899,7 +898,9 @@ class FetchIssuesTests(unittest.TestCase):
         from github_todoist_sync import fetch_issues
         issues, warn = fetch_issues(runner, "owner", "repo")
         self.assertIsNotNone(warn)
-        self.assertIn("parent_issue_url", warn)
+        # New gh-native field names appear in the warning.
+        self.assertIn("parent", warn)
+        self.assertIn("blockedBy", warn)
         self.assertIn("Upgrade", warn)
         self.assertEqual(len(issues), 1)
         self.assertIsNone(issues[0]["parent_issue_url"])
@@ -956,17 +957,16 @@ class FetchBlockedByTests(unittest.TestCase):
 
 class TodoistTransportDependencyTests(unittest.TestCase):
 
-    def test_set_parent_calls_update(self):
-        """set_parent issues a POST /tasks/{id} with parent_id."""
+    def test_set_parent_queues_for_sync(self):
+        """set_parent must NOT call the REST API (parent_id is not writable
+        through POST /tasks/{id}); it queues for the Sync API flush."""
         client = mock.MagicMock()
         client.request.return_value = None
         t = TodoistTransport(client=client)
         t.set_parent("task-1", "parent-1")
-        client.request.assert_called_once()
-        args, kwargs = client.request.call_args
-        self.assertEqual(args[0], "POST")
-        self.assertEqual(args[1], "/tasks/task-1")
-        self.assertEqual(kwargs.get("body"), {"parent_id": "parent-1"})
+        # Queued, not flushed yet.
+        self.assertEqual(t._pending_parents, [("task-1", "parent-1")])
+        client.request.assert_not_called()
 
     def test_set_dependencies_accumulates(self):
         client = mock.MagicMock()
@@ -980,33 +980,46 @@ class TodoistTransportDependencyTests(unittest.TestCase):
         # set_dependencies does NOT call client.request (queued for sync batch).
         client.request.assert_not_called()
 
-    def test_commit_dependencies_flushes_via_sync(self):
+    def test_commit_links_flushes_both_queues_via_sync(self):
+        """commit_links issues ONE /sync call with item_update commands
+        for both the parent_id queue and the dependency_ids queue."""
         client = mock.MagicMock()
         client.request.return_value = {"sync_status": {}, "full_sync": True}
         t = TodoistTransport(client=client)
-        t.set_dependencies("t1", ["b1"])
-        t.set_dependencies("t2", ["b2"])
-        records = t.commit_dependencies()
-        self.assertEqual(len(records), 2)
-        self.assertEqual(records[0]["task_id"], "t1")
-        self.assertEqual(records[1]["task_id"], "t2")
-        # Verify the sync command body.
+        t.set_parent("p-task", "parent-1")
+        t.set_parent("p-task-2", "parent-2")
+        t.set_dependencies("d-task", ["b1"])
+        t.set_dependencies("d-task-2", ["b2", "b3"])
+        records = t.commit_links()
+        self.assertEqual(len(records["parents"]), 2)
+        self.assertEqual(records["parents"][0],
+                         {"task_id": "p-task", "parent_id": "parent-1"})
+        self.assertEqual(len(records["deps"]), 2)
+        self.assertEqual(records["deps"][0],
+                         {"task_id": "d-task", "deps": ["b1"]})
+        # Verify ONE /sync call with all four commands.
         client.request.assert_called_once()
         args, kwargs = client.request.call_args
         self.assertEqual(args[0], "POST")
         self.assertEqual(args[1], "/sync")
         cmds = kwargs["body"]["commands"]
-        self.assertEqual(len(cmds), 2)
-        self.assertEqual(cmds[0]["type"], "item_update")
-        self.assertEqual(cmds[0]["args"]["dependency_ids"], ["b1"])
-        self.assertEqual(cmds[1]["args"]["dependency_ids"], ["b2"])
-        # Pending queue is now empty.
+        self.assertEqual(len(cmds), 4)
+        parent_cmds = [c for c in cmds if "parent_id" in c["args"]]
+        self.assertEqual(len(parent_cmds), 2)
+        self.assertEqual(parent_cmds[0]["type"], "item_update")
+        self.assertEqual(parent_cmds[0]["args"]["parent_id"], "parent-1")
+        dep_cmds = [c for c in cmds if "dependency_ids" in c["args"]]
+        self.assertEqual(len(dep_cmds), 2)
+        self.assertEqual(dep_cmds[0]["args"]["dependency_ids"], ["b1"])
+        # Both queues now empty.
+        self.assertEqual(t._pending_parents, [])
         self.assertEqual(t._pending_dependencies, [])
 
-    def test_commit_dependencies_noop_when_empty(self):
+    def test_commit_links_noop_when_empty(self):
         client = mock.MagicMock()
         t = TodoistTransport(client=client)
-        self.assertEqual(t.commit_dependencies(), [])
+        records = t.commit_links()
+        self.assertEqual(records, {"parents": [], "deps": []})
         # No request should have been issued.
         client.request.assert_not_called()
 
