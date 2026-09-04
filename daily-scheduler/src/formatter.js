@@ -69,9 +69,8 @@ export function formatReport(plan) {
 
   if (isApply && plan.operations) {
     report += `\n\n## ⚙️ Operations Summary\n`;
-    report += `- **Todoist Updates**: ${plan.operations.todoist_due_update?.filter(o => o.status === 'applied').length || 0} applied, ${plan.operations.todoist_due_update?.filter(o => o.status === 'failed').length || 0} failed\n`;
-    report += `- **Calendar Create**: ${plan.operations.calendar_create?.filter(o => o.status === 'applied').length || 0} applied, ${plan.operations.calendar_create?.filter(o => o.status === 'failed').length || 0} failed\n`;
-    report += `- **Calendar Update**: ${plan.operations.calendar_update?.filter(o => o.status === 'applied').length || 0} applied, ${plan.operations.calendar_update?.filter(o => o.status === 'failed').length || 0} failed\n`;
+    report += `- **Todoist Due Updates**: ${plan.operations.todoist_due_update?.filter(o => o.status === 'applied').length || 0} applied, ${plan.operations.todoist_due_update?.filter(o => o.status === 'failed').length || 0} failed\n`;
+    // Calendar has no write operations (read-only availability only, 2026-09-05).
   }
 
   return report;

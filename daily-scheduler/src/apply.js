@@ -1,38 +1,11 @@
-import { buildManagedEventPayload } from './calendar.js';
 import { ApplyPartialError, StateDriftError, VerifyError } from './errors.js';
-import { normalizeCalendarEvent } from './normalize.js';
 import { formatRfc3339InTimeZone } from './time.js';
 import { verifyPlan } from './verify.js';
 
-async function applyCalendarOperations(plan, { calendarClient, options, logger }) {
-  for (const operation of plan.operations.calendar_create) {
-    if (operation.status === 'noop' || operation.status === 'skipped') continue;
-    try {
-      const result = await calendarClient.createEvent(operation.calendar_id, buildManagedEventPayload(operation, options.timezone));
-      operation.status = 'applied';
-      operation.event_id = result?.id ?? result?.eventId ?? operation.event_id ?? null;
-      logger?.info?.('calendar event created', { taskId: operation.task_id, eventId: operation.event_id });
-    } catch (error) {
-      operation.status = 'failed';
-      operation.error = error.message;
-      plan.errors.push({ code: 'CALENDAR_CREATE_FAILED', message: error.message, task_id: operation.task_id });
-    }
-  }
-
-  for (const operation of plan.operations.calendar_update) {
-    if (operation.status === 'noop' || operation.status === 'skipped') continue;
-    try {
-      const result = await calendarClient.updateEvent(operation.calendar_id, operation.event_id, buildManagedEventPayload(operation, options.timezone));
-      operation.status = 'applied';
-      operation.event_id = result?.id ?? operation.event_id;
-      logger?.info?.('calendar event updated', { taskId: operation.task_id, eventId: operation.event_id });
-    } catch (error) {
-      operation.status = 'failed';
-      operation.error = error.message;
-      plan.errors.push({ code: 'CALENDAR_UPDATE_FAILED', message: error.message, task_id: operation.task_id, event_id: operation.event_id });
-    }
-  }
-}
+// NOTE: Calendar WRITE (create/update/delete) was intentionally removed
+// (Matt 2026-09-05: "google calendar は書き込み機能を削除して読み込みのみにする").
+// This pipeline only ever writes Todoist due timestamps; Google Calendar is
+// read-only for availability.
 
 async function applyTodoistDueOperations(plan, { todoistClient, options, taskLookup, logger }) {
   if (!options.syncTodoistDue && !options.todoistOnly) return;
@@ -59,7 +32,7 @@ async function applyTodoistDueOperations(plan, { todoistClient, options, taskLoo
 }
 
 export async function applyPlan(approvedPlan, {
-  calendarClient,
+  // NOTE: calendarClient was removed (2026-09-05) — calendar is read-only.
   todoistClient,
   reloadState,
   options,
@@ -89,28 +62,9 @@ export async function applyPlan(approvedPlan, {
   const mutablePlan = structuredClone(approvedPlan);
   let workingPlan = mutablePlan;
 
-  if (!options.todoistOnly) {
-    await applyCalendarOperations(workingPlan, { calendarClient, options, logger });
-
-    const stateAfterCalendar = await reloadState();
-    const normalizedCalendarEvents = stateAfterCalendar.calendarEvents.map((event) => ({
-      ...event,
-      startRfc3339: formatRfc3339InTimeZone(event.start, options.timezone),
-      endRfc3339: formatRfc3339InTimeZone(event.end, options.timezone),
-    }));
-    const calendarVerification = verifyPlan(workingPlan, {
-      calendarEvents: normalizedCalendarEvents,
-      tasks: stateAfterCalendar.tasks,
-      verifyTodoist: false,
-      verifyCalendar: true,
-    });
-    if (!calendarVerification.ok) {
-      calendarVerification.plan.errors.push({ code: 'CALENDAR_VERIFY_FAILED', message: 'Calendar verification mismatch', mismatches: calendarVerification.mismatches });
-      throw new VerifyError('Verification mismatch after calendar apply', { plan: calendarVerification.plan, mismatches: calendarVerification.mismatches });
-    }
-
-    workingPlan = calendarVerification.plan;
-  }
+  // NOTE: Calendar WRITE is removed. No calendar_create/update operations are
+  // ever applied — only Todoist due timestamps are written. Calendar events are
+  // read-only input for availability.
 
   const stateBeforeTodoist = await reloadState();
   const taskLookup = new Map(stateBeforeTodoist.tasks.map((task) => [task.id, task]));
@@ -124,7 +78,7 @@ export async function applyPlan(approvedPlan, {
       endRfc3339: formatRfc3339InTimeZone(event.end, options.timezone),
     })),
     tasks: stateAfterTodoist.tasks,
-    verifyCalendar: !options.todoistOnly,
+    verifyCalendar: false,
   });
 
   if (!verified.ok) {

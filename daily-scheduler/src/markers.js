@@ -1,30 +1,12 @@
 import { DESCRIPTION_MARKER_KEY, MANAGED_BY } from './constants.js';
 import { sha256 } from './util.js';
 
+// NOTE: buildManagedDescription / buildPrivateProperties were removed
+// (2026-09-05) — Calendar WRITE is gone; these produced field payloads for
+// calendar events that are no longer created/updated.
+
 export function buildIdempotencyKey({ taskId, start, end, plannerVersion }) {
   return sha256(`${taskId}|${start}|${end}|${plannerVersion}`);
-}
-
-export function buildManagedDescription(task, planItem, plannerVersion) {
-  const lines = [
-    `Todoist URL: ${task.url ?? ''}`,
-    `Todoist Task ID: ${task.id}`,
-    `Todoist Priority: ${task.priority}`,
-    `Original Due: ${task.original_due ?? 'none'}`,
-    `Duration Basis: ${planItem.duration_source}`,
-    `Planner Version: ${plannerVersion}`,
-    `${DESCRIPTION_MARKER_KEY}=${task.id}`,
-  ];
-  return lines.join('\n');
-}
-
-export function buildPrivateProperties(taskId, planDate, plannerVersion) {
-  return {
-    managedBy: MANAGED_BY,
-    todoistTaskId: String(taskId),
-    planDate,
-    plannerVersion,
-  };
 }
 
 export function extractManagedTaskId(event) {

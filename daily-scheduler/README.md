@@ -54,7 +54,7 @@ This implementation moves task fetching, calendar fetching, target extraction, d
 bin/daily-scheduler.js      CLI entrypoint
 src/config.js               CLI parsing and config merge
 src/todoist.js              Todoist API client + pagination + retry
-src/calendar.js             gog CLI adapter
+src/calendar.js             Google Calendar read-only adapter (google_api.py)
 src/normalize.js            Input normalization
 src/duration.js             Deterministic duration estimation
 src/priority.js             Deterministic score calculation
@@ -78,12 +78,11 @@ Pure planning logic is separated from external I/O. `plan` can run entirely from
 - Does **not** read or print token values.
 - Does **not** write `.env`, secrets, or auth state.
 
-### Google Calendar
+### Google Calendar (read-only)
 
-- Uses `gog` CLI.
-- Expected account: `your-email-at-provider.example`
-- Expected calendar: `primary` by default
-- Existing gog OAuth/config is reused and never overwritten.
+- Uses the google-workspace skill's `scripts/google_api.py` CLI (replaced `gog` on 2026-09-05).
+- Google Calendar is **read-only** for availability. No calendar create/update/delete is performed.
+- Expected calendar: `primary` by default.
 
 ## Secret management
 
@@ -97,10 +96,10 @@ Pure planning logic is separated from external I/O. `plan` can run entirely from
 ```bash
 node ./src/main.js plan --todoist-file ./fixtures/todoist-tasks.json --calendar-file ./fixtures/calendar-events.json
 node ./src/main.js verify --todoist-file ./fixtures/todoist-tasks.json --calendar-file ./fixtures/calendar-events.json
-node ./src/main.js run --dry-run --date 2026-03-08 --timezone America/New_York
-node ./src/main.js run --apply --date 2026-03-08 --timezone America/New_York
-node ./src/main.js apply --date 2026-03-08 --timezone America/New_York
-node ./src/main.js run --apply --todoist-only --date 2026-03-08 --timezone America/New_York
+node ./src/main.js run --dry-run --date 2026-03-08 --timezone UTC
+node ./src/main.js run --apply --date 2026-03-08 --timezone UTC
+node ./src/main.js apply --date 2026-03-08 --timezone UTC
+node ./src/main.js run --apply --todoist-only --date 2026-03-08 --timezone UTC
 ```
 
 `run` defaults to dry-run.
@@ -108,7 +107,7 @@ node ./src/main.js run --apply --todoist-only --date 2026-03-08 --timezone Ameri
 ## Core options
 
 - `--date YYYY-MM-DD`
-- `--timezone America/New_York`
+- `--timezone UTC`
 - `--days 3`
 - `--account your-email-at-provider.example`
 - `--calendar primary`
@@ -135,25 +134,26 @@ No external writes occur.
 
 `apply` / `run --apply` performs:
 
-1. input fetch
+1. input fetch (Todoist + Google Calendar availability)
 2. deterministic plan build
 3. schema validation
 4. state reload
-5. calendar create/update
-6. calendar verification
-7. optional Todoist due sync
-8. Todoist verification
-9. final JSON report
+5. optional Todoist due sync (the only write path)
+6. Todoist verification
+7. final JSON report
 
-### Todoist-only mode
+### Calendar is read-only (all modes)
 
-Enable with `--todoist-only`.
+Since 2026-09-05 Google Calendar is used **only** for availability — the pipeline
+never creates/updates/deletes calendar events. `--todoist-only` keeps its meaning
+(write Todoist due, don't plan calendar ops), but even without it no calendar
+write occurs.
 
 Behavior:
 
-- Google Calendar is read only for availability
+- Google Calendar is always read-only for availability
 - `operations.calendar_create`, `calendar_update`, `calendar_noop`, and `calendar_stale` remain empty
-- scheduled non-recurring tasks generate `todoist_due_update` operations automatically
+- scheduled non-recurring tasks generate `todoist_due_update` operations automatically when `--todoist-only` or `--sync-todoist-due` is set
 - apply writes only Todoist `due_datetime`
 - verify checks Todoist due values and ignores Calendar mutation checks
 - recurring tasks still go to `manual_review`
@@ -194,22 +194,20 @@ Recurring tasks are **not** rewritten into normal dated tasks and are **not** au
 
 ## Timezone handling
 
-- Calendar planning timezone: `America/New_York`
-- Todoist date-only interpretation timezone: `Asia/Tokyo`
+- Calendar planning timezone: `UTC` (default; see constants.js for the EDT/EST map).
+- Todoist date-only interpretation timezone: `UTC` (was Asia/Tokyo; changed to match the 2026-09-04 UTC-unification directive).
 - Date-only due dates are treated as end-of-day in Todoist timezone.
-- RFC3339 outputs include explicit offsets, including DST transitions.
+- RFC3339 outputs include explicit `Z` suffix when in UTC.
 
 ## Idempotency
 
-Managed calendar events include (Calendar-writing modes only):
+Calendar WRITE was removed (2026-09-05) — the pipeline never creates/updates
+calendar events, so there are no managed-event idempotency concerns on the
+Calendar side.
 
-- summary: `[Todoist] <task title>`
-- description marker: `TETRA_TODOIST_TASK_ID=<id>`
-- private properties:
-  - `managedBy=task-rescheduler`
-  - `todoistTaskId=<id>`
-  - `planDate=<date>`
-  - `plannerVersion=<version>`
+Todoist side idempotency: an operation is `noop` when the scheduled start equals
+the current Todoist `due_datetime` and labels already match. Re-running an apply
+against the same state yields no write.
 
 Idempotency key:
 
@@ -217,29 +215,19 @@ Idempotency key:
 sha256(task_id + start + end + planner_version)
 ```
 
-Behavior:
-
-- if no managed event exists: create
-- if the managed event already matches: noop
-- if a managed event exists but differs: update
-- stale/duplicate managed events are reported, never auto-deleted
-- unrelated manual events are never modified
-
 ## Rollback
 
 No destructive rollback is attempted automatically.
 
 Use the final JSON report to identify:
 
-- created event IDs
-- updated event IDs
-- prior Todoist due values
+- `operations.todoist_due_update[].previous_due` (prior Todoist due values)
+- `operations.todoist_due_update[].scheduled_start`
 
 Manual rollback procedure:
 
 1. inspect the report JSON
-2. revert affected calendar events manually or with `gog calendar update` (if Calendar-writing mode was used)
-3. restore Todoist due values from `operations.todoist_due_update[].previous_due`
+2. restore Todoist due values from `operations.todoist_due_update[].previous_due`
 
 ## Cron integration example
 
@@ -249,14 +237,14 @@ Example command to evaluate first:
 
 ```bash
 cd /path/to/your/workspace/scripts/daily-scheduler && \
-node ./src/main.js run --dry-run --date "$(date +%F)" --timezone America/New_York
+node ./src/main.js run --dry-run --date "$(date +%F)" --timezone UTC
 ```
 
 Todoist-only cron-friendly variant:
 
 ```bash
 cd /path/to/your/workspace/scripts/daily-scheduler && \
-node ./src/main.js run --apply --todoist-only --timezone America/New_York --days 3\n+```
+node ./src/main.js run --apply --todoist-only --timezone UTC --days 3\n+```
 
 Recommended rollout:
 
@@ -270,7 +258,7 @@ Recommended rollout:
 ## Troubleshooting
 
 - `exit 2`: bad CLI/config input
-- `exit 3`: auth failure (Todoist token missing/invalid, gog auth unavailable)
+- `exit 3`: auth failure (Todoist token missing/invalid, google_api calendar auth unavailable)
 - `exit 4`: external API/CLI failure
 - `exit 5`: plan generation or schema failure
 - `exit 6`: apply had partial failures
@@ -285,7 +273,7 @@ If rate limited, Todoist retries honor `Retry-After` with a capped backoff.
   "schema_version": "1.0",
   "run_id": "...",
   "generated_at": "2026-03-08T13:10:00.000Z",
-  "timezone": "America/New_York",
+  "timezone": "UTC",
   "mode": "dry-run",
   "todoist_only": true,
   "inputs": {
@@ -312,7 +300,7 @@ If rate limited, Todoist retries honor `Retry-After` with a capped backoff.
         "previous_due": "2026-03-07",
         "desired_due": "2026-03-08T17:00:00Z",
         "scheduled_start": "2026-03-08T13:00:00-04:00",
-        "desired_timezone": "America/New_York",
+        "desired_timezone": "UTC",
         "recurring": false
       }
     ]

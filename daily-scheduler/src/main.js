@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import { applyPlan } from './apply.js';
-import { GogCalendarClient, loadCalendarFixture } from './calendar.js';
+import { GoogleCalendarClient, loadCalendarFixture } from './calendar.js';
 import { parseCli, helpText } from './config.js';
 import { EXIT_CODES, MANAGED_BY } from './constants.js';
 import { AuthError, InputError, SchedulerError } from './errors.js';
@@ -26,7 +26,9 @@ function summarizeVerificationPlan(plan) {
 
 async function loadState(options, logger) {
   const todoistClient = new TodoistClient({ logger });
-  const calendarClient = new GogCalendarClient({ account: options.account, logger });
+  // Reads Google Calendar availability via google_api.py (formerly `gog`).
+  // Calendar WRITE (create/update/delete) is intentionally removed.
+  const calendarClient = new GoogleCalendarClient({ logger });
   const todoistRawTasks = options.todoistFile ? await loadTodoistFixture(options.todoistFile) : await todoistClient.listIncompleteTasks();
   const projectIndex = new Map();
   if (!options.todoistFile) {

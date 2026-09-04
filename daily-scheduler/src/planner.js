@@ -1,7 +1,7 @@
 import { buildPlanningWindow, buildBusyIntervals, findSlot, registerScheduledInterval } from './availability.js';
 import { PLAN_SCHEMA_VERSION, PLANNER_VERSION } from './constants.js';
 import { estimateDuration } from './duration.js';
-import { buildIdempotencyKey, buildManagedDescription, buildPrivateProperties } from './markers.js';
+import { buildIdempotencyKey } from './markers.js';
 import { classifyTaskTarget, isBusyCalendarEvent, taskDeadline } from './normalize.js';
 import { computeTaskScore, compareTaskPriority } from './priority.js';
 import { addDaysToDateString, formatDateInTimeZone, formatRfc3339InTimeZone, toUtcRfc3339 } from './time.js';
@@ -9,26 +9,6 @@ import { compareStrings, groupBy, isoNow, stableSort, sha256 } from './util.js';
 
 function sortEventsByStart(left, right) {
   return left.start - right.start || left.end - right.end || compareStrings(left.id, right.id);
-}
-
-function desiredCalendarEvent(task, scheduledItem, plannerVersion) {
-  return {
-    summary: `[Todoist] ${task.content}`,
-    description: buildManagedDescription(task, scheduledItem, plannerVersion),
-    privateProperties: buildPrivateProperties(task.id, scheduledItem.plan_date, plannerVersion),
-  };
-}
-
-function compareEventToDesired(event, desired, start, end, timezone) {
-  const actualStart = formatRfc3339InTimeZone(event.start, timezone);
-  const actualEnd = formatRfc3339InTimeZone(event.end, timezone);
-  const sameStart = actualStart === start;
-  const sameEnd = actualEnd === end;
-  const sameSummary = (event.summary ?? '') === desired.summary;
-  const sameDescription = (event.description ?? '').trim() === desired.description.trim();
-  const privateProps = event.privateProperties ?? {};
-  const sameProps = Object.entries(desired.privateProperties).every(([key, value]) => String(privateProps[key] ?? '') === String(value));
-  return sameStart && sameEnd && sameSummary && sameDescription && sameProps;
 }
 
 function buildTodoistDueOperation(task, scheduledItem, options) {
@@ -56,6 +36,10 @@ function buildTodoistDueOperation(task, scheduledItem, options) {
 
 export function buildPlan({ tasks, calendarEvents, options, runId, generatedAt = isoNow() }) {
   const now = new Date(options.now ?? generatedAt);
+  // managesCalendar controls whether the task's OWN previously-managed calendar
+  // events are excluded from the busy set (so a task isn't blocked by its own
+  // past placement). Calendar WRITE (create/update/delete) is removed
+  // (2026-09-05); this flag only affects availability parsing now.
   const managesCalendar = !options.todoistOnly;
   const warnings = [];
   const errors = [];
@@ -124,14 +108,6 @@ export function buildPlan({ tasks, calendarEvents, options, runId, generatedAt =
       });
       busyEvents.push(event);
     }
-  }
-
-  if (managesCalendar && staleManagedEvents.length > 0) {
-    warnings.push({
-      code: 'STALE_MANAGED_EVENTS_PRESENT',
-      message: 'Existing managed events will not be modified automatically.',
-      count: staleManagedEvents.length,
-    });
   }
 
   const operationalTimezone = options.timezone;
@@ -321,37 +297,14 @@ export function buildPlan({ tasks, calendarEvents, options, runId, generatedAt =
     calendar_create: [],
     calendar_update: [],
     calendar_noop: [],
-    calendar_stale: managesCalendar ? staleManagedEvents.map((event) => ({ status: 'skipped', ...event })) : [],
+    calendar_stale: [],
     todoist_due_update: [],
   };
 
   for (const item of scheduled) {
     const task = targetTasks.find((candidate) => candidate.id === item.task_id);
-    if (managesCalendar) {
-      const managedEvents = [...(managedEventsByTaskId.get(task.id) ?? [])].sort(sortEventsByStart);
-      const canonical = managedEvents[0] ?? null;
-      const desired = desiredCalendarEvent(task, item, options.plannerVersion ?? PLANNER_VERSION);
-      const baseOp = {
-        task_id: task.id,
-        title: task.content,
-        calendar_id: options.calendars[0],
-        event_id: canonical?.id ?? null,
-        start: item.start,
-        end: item.end,
-        idempotency_key: item.idempotency_key,
-        desired_summary: desired.summary,
-        desired_description: desired.description,
-        desired_private_properties: desired.privateProperties,
-      };
-      if (!canonical) {
-        operations.calendar_create.push({ status: 'planned', ...baseOp });
-      } else if (compareEventToDesired(canonical, desired, item.start, item.end, options.timezone)) {
-        operations.calendar_noop.push({ status: 'noop', ...baseOp });
-      } else {
-        operations.calendar_update.push({ status: 'planned', ...baseOp });
-      }
-    }
-
+    // Calendar WRITE removed (2026-09-05): no create/update/noop ops are
+    // generated here. Only Todoist due timestamps are written.
     if ((options.syncTodoistDue || options.todoistOnly) && !task.due.is_recurring) {
       operations.todoist_due_update.push(buildTodoistDueOperation(task, item, options));
     }

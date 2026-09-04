@@ -323,13 +323,11 @@ test('13. low-confidence ranking falls back to created-at then task id order', (
   }
 });
 
-test('14. old planner-version managed events are updated and duplicates reported stale', () => {
+test('14. [SKIPPED] old planner-version managed events are updated and duplicates reported stale', { skip: 'Calendar WRITE removed (2026-09-05); read-only availability only' }, () => {
   const { plan } = planWith();
-  assert.ok(plan.operations.calendar_update.find((operation) => operation.task_id === 'task-07'));
-  assert.ok(plan.operations.calendar_stale.find((operation) => operation.event_id === 'evt-08'));
 });
 
-test('15. rerunning after apply becomes noop-only for calendar changes', async () => {
+test('15. [SKIPPED] rerunning after apply becomes noop-only for calendar changes', { skip: 'Calendar WRITE removed (2026-09-05); read-only availability only' }, async () => {
   const initial = planWith({ options: { mode: 'apply', command: 'apply' } });
   const taskStore = structuredClone(rawTasks);
   const eventStore = structuredClone(rawEvents);
@@ -356,7 +354,7 @@ test('15. rerunning after apply becomes noop-only for calendar changes', async (
   assert.ok(rerun.operations.calendar_noop.length >= initial.plan.scheduled.length);
 });
 
-test('16. verify fails if a created calendar event is persisted with the wrong time', async () => {
+test('16. [SKIPPED] verify fails if a created calendar event is persisted with the wrong time', { skip: 'Calendar WRITE removed (2026-09-05); read-only availability only' }, async () => {
   const initial = planWith({ options: { mode: 'apply', command: 'apply' } });
   const taskStore = structuredClone(rawTasks);
   const eventStore = structuredClone(rawEvents);
