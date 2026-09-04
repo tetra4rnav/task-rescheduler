@@ -1,0 +1,15 @@
+{
+  "$schema_version": "1.0",
+  "$comment": "Example config for todoist-github-sync. Copy to $HERMES_HOME/configs/github-projects.json and edit.",
+  "projects": [
+    {
+      "name": "Example Project",
+      "github_owner": "your-org",
+      "github_repos": ["your-repo"],
+      "todoist_project": "Inbox",
+      "github_project_number": null,
+      "issue_labels_include": [],
+      "issue_labels_exclude": []
+    }
+  ]
+}

@@ -16,6 +16,20 @@ rendering:
 - `today_dashboard.py` — renders a one-page HTML dashboard for today.
 - `hub_sync.py` and `project_hub_sync_gate.py` — project hub mirror helpers.
 
+## GitHub Issue → Todoist sync
+
+A separate, standalone subpackage that pulls GitHub Issues (and optional
+GitHub Projects dates) into Todoist tasks. GitHub is authoritative;
+Todoist-side edits to duration and priority are preserved.
+
+Lives at `todoist-github-sync/`. Configuration is read from
+`--config <path>` or `$GITHUB_PROJECTS_CONFIG`. Includes a one-shot
+migrator for users coming from the old
+`openclaw-mirror/scripts/project_registry.json` format.
+
+See [`todoist-github-sync/README.md`](./todoist-github-sync/README.md)
+for schema, usage, and operational notes.
+
 ## Requirements
 
 - Node.js ≥ 24.
@@ -27,13 +41,13 @@ rendering:
 
 ```bash
 # Dry-run plan (read-only, JSON to stdout)
-node rescheduler/run.js --dry-run --timezone America/New_York
+node rescheduler/run.js --dry-run --timezone UTC
 
 # Apply plan (writes scheduled due datetimes back to Todoist)
-node rescheduler/run.js --apply --timezone America/New_York
+node rescheduler/run.js --apply --timezone UTC
 
 # Calendar-free mode (Todoist due only)
-node rescheduler/run.js --apply --no-calendar --timezone America/New_York
+node rescheduler/run.js --apply --no-calendar --timezone UTC
 ```
 
 ## Architecture
