@@ -160,6 +160,9 @@ export async function parseCli(argv, { now = new Date() } = {}) {
       case '--placements':
         parsed.placementsFile = args[++index];
         break;
+      case '--model':
+        parsed.model = args[++index];
+        break;
       case '--overrides':
       case '--overrides-file':
         parsed.overridesFile = args[++index];
@@ -193,6 +196,14 @@ export async function parseCli(argv, { now = new Date() } = {}) {
   if (parsed.configPath) {
     const configContent = JSON.parse(await fs.readFile(parsed.configPath, 'utf8'));
     parsed.config = mergeConfig(DEFAULT_CONFIG, configContent);
+  }
+  // --model CLI overrides llmDuration.model (B案: model from CLI, per 2026-09-05 design).
+  // Clone llmDuration to avoid mutating the shared DEFAULT_CONFIG (which is frozen).
+  if (parsed.model) {
+    const llm = { ...parsed.config.llmDuration };
+    llm.enabled = true;
+    llm.model = parsed.model;
+    parsed.config = { ...parsed.config, llmDuration: Object.freeze(llm) };
   }
   parsed.todoistTimezone = parsed.timezone;
 

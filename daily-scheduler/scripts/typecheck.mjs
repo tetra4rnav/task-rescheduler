@@ -60,7 +60,7 @@ const normalizedTasks = tasks.map((task) => normalizeTodoistTask(task, {
   excludedLabels: options.config.excludedLabels,
 }));
 const normalizedEvents = events.map((event) => normalizeCalendarEvent(event, { calendarId: 'primary', timezone: options.timezone }));
-const plan = buildPlan({
+const plan = await buildPlan({
   tasks: normalizedTasks,
   calendarEvents: normalizedEvents,
   options,

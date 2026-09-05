@@ -90,11 +90,11 @@ function normalizeEvents(eventOverrides = rawEvents, options = makeOptions()) {
   }));
 }
 
-function planWith(overrides = {}) {
+async function planWith(overrides = {}) {
   const options = makeOptions(overrides.options);
   const tasks = normalizeTasks(overrides.tasks ?? rawTasks, options);
   const calendarEvents = normalizeEvents(overrides.events ?? rawEvents, options);
-  const plan = buildPlan({
+  const plan = await buildPlan({
     tasks,
     calendarEvents,
     options,
@@ -196,27 +196,27 @@ function normalizeStoreState(taskStore, eventStore, options) {
   };
 }
 
-test('1. date-only due (issue start date) is an earliest-start constraint, not a manual review', () => {
-  const { plan } = planWith();
+test('1. date-only due (issue start date) is an earliest-start constraint, not a manual review', async () => {
+  const { plan } = await planWith();
   const item = plan.scheduled.find((entry) => entry.task_id === 'task-01');
   assert.ok(item, 'date-only due task must be schedulable (no longer manual review)');
   // start must be at/after the due date (着手日 = earliest start)
   assert.ok(new Date(item.start) >= new Date('2026-03-06T00:00:00-04:00'));
 });
 
-test('2. Todoist deadline is normalized and used as the hard deadline', () => {
+test('2. Todoist deadline is normalized and used as the hard deadline', async () => {
   const tasks = rawTasks.map((task) => task.id === 'task-02'
     ? { ...task, due: null, deadline: { date: '2026-03-08', lang: 'en' } }
     : task);
-  const { plan } = planWith({ tasks });
+  const { plan } = await planWith({ tasks });
   const item = plan.scheduled.find((entry) => entry.task_id === 'task-02');
   assert.ok(item);
   assert.equal(item.deadline_at, '2026-03-08');
   assert.ok(new Date(item.end) <= new Date('2026-03-09T00:00:00-04:00'));
 });
 
-test('3. due datetime (issue start time) becomes an earliest-start constraint', () => {
-  const { plan } = planWith();
+test('3. due datetime (issue start time) becomes an earliest-start constraint', async () => {
+  const { plan } = await planWith();
   const item = plan.scheduled.find((entry) => entry.task_id === 'task-13');
   // task-13 due datetime = 2026-03-08T20:30+09:00 == 2026-03-08T11:30Z == 07:30-04:00
   // It must not be scheduled before that instant.
@@ -224,8 +224,8 @@ test('3. due datetime (issue start time) becomes an earliest-start constraint', 
   assert.ok(new Date(item.start) >= new Date('2026-03-08T11:30:00Z'));
 });
 
-test('4. recurring tasks are deferred autonomously instead of sent to manual review', () => {
-  const { plan } = planWith();
+test('4. recurring tasks are deferred autonomously instead of sent to manual review', async () => {
+  const { plan } = await planWith();
   assert.deepEqual(plan.deferred.find((entry) => entry.task_id === 'task-05'), {
     task_id: 'task-05',
     title: 'Daily workout',
@@ -234,38 +234,38 @@ test('4. recurring tasks are deferred autonomously instead of sent to manual rev
   });
 });
 
-test('5. DST transition day uses the correct -04:00 offset for scheduled events', () => {
-  const { plan } = planWith();
+test('5. DST transition day uses the correct -04:00 offset for scheduled events', async () => {
+  const { plan } = await planWith();
   assert.ok(plan.scheduled.every((entry) => /-04:00$/.test(entry.start) && /-04:00$/.test(entry.end)));
 });
 
-test('6. all-day events block the entire day', () => {
-  const { plan } = planWith();
+test('6. all-day events block the entire day', async () => {
+  const { plan } = await planWith();
   assert.equal(plan.scheduled.some((entry) => entry.plan_date === '2026-03-09'), false);
 });
 
-test('7. transparent events do not block an otherwise free slot', () => {
-  const { plan } = planWith();
+test('7. transparent events do not block an otherwise free slot', async () => {
+  const { plan } = await planWith();
   assert.ok(plan.scheduled.some((entry) => entry.start === '2026-03-08T13:00:00-04:00'));
 });
 
-test('8. overlapping busy events are merged, so no work starts before noon', () => {
-  const { plan } = planWith();
+test('8. overlapping busy events are merged, so no work starts before noon', async () => {
+  const { plan } = await planWith();
   const todaysStarts = plan.scheduled
     .filter((entry) => entry.start.startsWith('2026-03-08'))
     .map((entry) => entry.start.slice(11, 16));
   assert.ok(todaysStarts.every((time) => time >= '13:00'));
 });
 
-test('9. lunch break stays clear', () => {
-  const { plan } = planWith();
+test('9. lunch break stays clear', async () => {
+  const { plan } = await planWith();
   for (const item of plan.scheduled) {
     if (!item.start.startsWith('2026-03-08')) continue;
     assert.ok(!(item.start.slice(11, 16) < '13:00' && item.end.slice(11, 16) > '12:00'));
   }
 });
 
-test('10. tasks become unscheduled when no slot exists before deadline', () => {
+test('10. tasks become unscheduled when no slot exists before deadline', async () => {
   const blockedEvents = [
     ...rawEvents,
     {
@@ -280,13 +280,13 @@ test('10. tasks become unscheduled when no slot exists before deadline', () => {
   const tasks = rawTasks.map((task) => task.id === 'task-02'
     ? { ...task, due: null, deadline: { date: '2026-03-08', lang: 'en' } }
     : task);
-  const { plan } = planWith({ events: blockedEvents, tasks });
+  const { plan } = await planWith({ events: blockedEvents, tasks });
   const item = plan.unscheduled.find((entry) => entry.task_id === 'task-02');
   assert.ok(item);
   assert.equal(item.reason_code, 'NO_SLOT_BEFORE_DEADLINE');
 });
 
-test('11. explicit Todoist durations win', () => {
+test('11. explicit Todoist durations win', async () => {
   const options = makeOptions();
   const task = normalizeTasks().find((entry) => entry.id === 'task-06');
   assert.deepEqual(estimateDuration(task, options.config), {
@@ -297,7 +297,7 @@ test('11. explicit Todoist durations win', () => {
   });
 });
 
-test('12. keyword rules estimate deterministic durations', () => {
+test('12. keyword rules estimate deterministic durations', async () => {
   const options = makeOptions();
   const task = normalizeTasks().find((entry) => entry.id === 'task-08');
   const duration = estimateDuration(task, options.config);
@@ -305,7 +305,7 @@ test('12. keyword rules estimate deterministic durations', () => {
   assert.equal(duration.duration_minutes, 60);
 });
 
-test('12b. issue numbers in URLs are not misread as hours (2026-09-05 over-estimation regression)', () => {
+test('12b. issue numbers in URLs are not misread as hours (2026-09-05 over-estimation regression)', async () => {
   const options = makeOptions();
   // GitHub-linked task whose issue number (#84) previously matched "N h" in
   // the URL (https) → was estimated as 84 hours / 5040 min.
@@ -323,8 +323,8 @@ test('12b. issue numbers in URLs are not misread as hours (2026-09-05 over-estim
   assert.ok(duration.duration_minutes <= 120, `duration ${duration.duration_minutes}min should not be inflated`);
 });
 
-test('13. low-confidence ranking falls back to created-at then task id order', () => {
-  const { plan } = planWith({
+test('13. low-confidence ranking falls back to created-at then task id order', async () => {
+  const { plan } = await planWith({
     tasks: rawTasks.map((task) => {
       // These tasks don't get manual review anymore, they just get warned + scheduled, 
       // but we can check the warnings or scheduled queue to see their comparative ranking order.
@@ -344,12 +344,12 @@ test('13. low-confidence ranking falls back to created-at then task id order', (
   }
 });
 
-test('14. [SKIPPED] old planner-version managed events are updated and duplicates reported stale', { skip: 'Calendar WRITE removed (2026-09-05); read-only availability only' }, () => {
-  const { plan } = planWith();
+test('14. [SKIPPED] old planner-version managed events are updated and duplicates reported stale', { skip: 'Calendar WRITE removed (2026-09-05); read-only availability only' }, async () => {
+  const { plan } = await planWith();
 });
 
 test('15. [SKIPPED] rerunning after apply becomes noop-only for calendar changes', { skip: 'Calendar WRITE removed (2026-09-05); read-only availability only' }, async () => {
-  const initial = planWith({ options: { mode: 'apply', command: 'apply' } });
+  const initial = await planWith({ options: { mode: 'apply', command: 'apply' } });
   const taskStore = structuredClone(rawTasks);
   const eventStore = structuredClone(rawEvents);
   const options = makeOptions({ mode: 'apply', command: 'apply' });
@@ -363,7 +363,7 @@ test('15. [SKIPPED] rerunning after apply becomes noop-only for calendar changes
     reloadState: async () => normalizeStoreState(taskStore, eventStore, options),
   });
   assert.ok(applied.operations.calendar_create.every((entry) => entry.status === 'verified'));
-  const rerun = buildPlan({
+  const rerun = await buildPlan({
     tasks: normalizeTasks(taskStore, options),
     calendarEvents: normalizeEvents(eventStore, options),
     options,
@@ -376,7 +376,7 @@ test('15. [SKIPPED] rerunning after apply becomes noop-only for calendar changes
 });
 
 test('16. [SKIPPED] verify fails if a created calendar event is persisted with the wrong time', { skip: 'Calendar WRITE removed (2026-09-05); read-only availability only' }, async () => {
-  const initial = planWith({ options: { mode: 'apply', command: 'apply' } });
+  const initial = await planWith({ options: { mode: 'apply', command: 'apply' } });
   const taskStore = structuredClone(rawTasks);
   const eventStore = structuredClone(rawEvents);
   const options = makeOptions({ mode: 'apply', command: 'apply' });
@@ -403,7 +403,7 @@ test('16. [SKIPPED] verify fails if a created calendar event is persisted with t
 });
 
 test('17. Todoist due update partial failures are surfaced separately', async () => {
-  const initial = planWith({ options: { syncTodoistDue: true, mode: 'apply', command: 'apply' } });
+  const initial = await planWith({ options: { syncTodoistDue: true, mode: 'apply', command: 'apply' } });
   const taskStore = structuredClone(rawTasks);
   const eventStore = structuredClone(rawEvents);
   const options = makeOptions({ syncTodoistDue: true, mode: 'apply', command: 'apply' });
@@ -465,7 +465,7 @@ test('19. 429 handling respects Retry-After without infinite retries', async () 
   assert.equal(attempts, 2);
 });
 
-test('20. secrets are redacted from loggable text', () => {
+test('20. secrets are redacted from loggable text', async () => {
   const redacted = redactSecrets('Authorization: Bearer secret123 TODOIST_API_TOKEN=abc access_token=zzz refresh_token=rrr client_secret=ccc');
   assert.equal(redacted.includes('secret123'), false);
   assert.equal(redacted.includes('abc'), false);
@@ -474,8 +474,8 @@ test('20. secrets are redacted from loggable text', () => {
   assert.equal(redacted.includes('ccc'), false);
 });
 
-test('21. todoist-only planning keeps calendar operations empty and plans due updates', () => {
-  const { plan } = planWith({ options: { todoistOnly: true, syncTodoistDue: true } });
+test('21. todoist-only planning keeps calendar operations empty and plans due updates', async () => {
+  const { plan } = await planWith({ options: { todoistOnly: true, syncTodoistDue: true } });
   assert.equal(plan.todoist_only, true);
   assert.deepEqual(plan.operations.calendar_create, []);
   assert.deepEqual(plan.operations.calendar_update, []);
@@ -490,7 +490,7 @@ test('21. todoist-only planning keeps calendar operations empty and plans due up
 });
 
 test('22. todoist-only apply updates Todoist but never calls calendar mutations', async () => {
-  const initial = planWith({ options: { todoistOnly: true, syncTodoistDue: true, mode: 'apply', command: 'apply' } });
+  const initial = await planWith({ options: { todoistOnly: true, syncTodoistDue: true, mode: 'apply', command: 'apply' } });
   const taskStore = structuredClone(rawTasks);
   const eventStore = structuredClone(rawEvents);
   const options = makeOptions({ todoistOnly: true, syncTodoistDue: true, mode: 'apply', command: 'apply' });
@@ -510,7 +510,7 @@ test('22. todoist-only apply updates Todoist but never calls calendar mutations'
   assert.deepEqual(Object.keys(todoistClient.calls[0].payload).sort(), ['due_datetime', 'labels']);
 });
 
-test('24. normalize exposes deadline, scheduled start, assignment source, and planner version', () => {
+test('24. normalize exposes deadline, scheduled start, assignment source, and planner version', async () => {
   const normalized = normalizeTodoistTask({
     id: 'model-1',
     content: 'Model task',
@@ -526,14 +526,14 @@ test('24. normalize exposes deadline, scheduled start, assignment source, and pl
   assert.equal(normalized.duration, 30);
 });
 
-test('25. auto-schedule uses opt-out behavior by default', () => {
+test('25. auto-schedule uses opt-out behavior by default', async () => {
   const eligible = normalizeTodoistTask({ id: 'a', content: 'A', labels: [] }, { excludedLabels: ['no-auto-schedule'] });
   const excluded = normalizeTodoistTask({ id: 'b', content: 'B', labels: ['no-auto-schedule'] }, { excludedLabels: ['no-auto-schedule'] });
   assert.equal(eligible.excluded, false);
   assert.equal(excluded.excluded, true);
 });
 
-test('26. deadline migration is preview-only and excludes no-auto-schedule tasks', () => {
+test('26. deadline migration is preview-only and excludes no-auto-schedule tasks', async () => {
   const tasks = [
     normalizeTodoistTask({ id: 'm1', content: 'Migrate', labels: [], due: { date: '2026-03-12', is_recurring: false } }, { excludedLabels: ['no-auto-schedule'] }),
     normalizeTodoistTask({ id: 'm2', content: 'Excluded', labels: ['no-auto-schedule'], due: { date: '2026-03-12', is_recurring: false } }, { excludedLabels: ['no-auto-schedule'] }),
@@ -546,8 +546,8 @@ test('26. deadline migration is preview-only and excludes no-auto-schedule tasks
   assert.equal(plan.operations[0].clear_due, true);
 });
 
-test('27. explicit Todoist duration receives a score bonus', () => {
-  const { plan } = planWith({
+test('27. explicit Todoist duration receives a score bonus', async () => {
+  const { plan } = await planWith({
     tasks: [
       { id: 'explicit', content: 'Same task', labels: [], priority: 2, created_at: '2026-03-01T00:00:00Z', duration: { amount: 30, unit: 'minute' } },
       { id: 'rule', content: 'Same task (30 min)', labels: [], priority: 2, created_at: '2026-03-01T00:00:00Z' },
@@ -559,7 +559,7 @@ test('27. explicit Todoist duration receives a score bonus', () => {
   assert.equal(plan.scheduled[0].score_breakdown.explicit_duration_bonus, 12);
 });
 
-test('28. low-confidence tasks are logged as warnings but scheduled autonomously', () => {
+test('28. low-confidence tasks are logged as warnings but scheduled autonomously', async () => {
   const tasks = Array.from({ length: 5 }, (_, index) => ({
     id: `low-${index}`,
     content: `Unknown ${index}`,
@@ -567,13 +567,13 @@ test('28. low-confidence tasks are logged as warnings but scheduled autonomously
     priority: 1,
     created_at: `2026-03-0${index + 1}T00:00:00Z`,
   }));
-  const { plan } = planWith({ tasks, events: [], options: { config: { ...mergedConfig(), lowConfidenceManualReviewLimit: 2 } } });
+  const { plan } = await planWith({ tasks, events: [], options: { config: { ...mergedConfig(), lowConfidenceManualReviewLimit: 2 } } });
   assert.equal(plan.manual_review.length, 0); // They shouldn't hit manual review anymore
   assert.equal(plan.deferred.filter((item) => item.reason_code === 'LOW_CONFIDENCE_DEFERRED').length, 0);
   assert.ok(plan.warnings.some((item) => item.code === 'LOW_CONFIDENCE_AUTONOMOUS_SCHEDULE'));
 });
 
-test('29. undated task WIP limit defers lower-ranked overflow', () => {
+test('29. undated task WIP limit defers lower-ranked overflow', async () => {
   const tasks = Array.from({ length: 4 }, (_, index) => ({
     id: `wip-${index}`,
     content: `Research item ${index}`,
@@ -582,20 +582,20 @@ test('29. undated task WIP limit defers lower-ranked overflow', () => {
     created_at: '2026-03-01T00:00:00Z',
   }));
   const config = { ...mergedConfig(), undatedWipLimit: 2, lowConfidenceManualReviewThreshold: 0 };
-  const { plan } = planWith({ tasks, events: [], options: { config } });
+  const { plan } = await planWith({ tasks, events: [], options: { config } });
   assert.equal(plan.scheduled.length, 2);
   assert.equal(plan.deferred.filter((item) => item.reason_code === 'UNDATED_WIP_LIMIT').length, 2);
 });
 
-test('30. deadline horizon defers distant deadlines', () => {
+test('30. deadline horizon defers distant deadlines', async () => {
   const tasks = [{ id: 'future', content: 'Research future', labels: [], priority: 4, deadline: { date: '2026-04-01' } }];
   const config = { ...mergedConfig(), deadlineHorizonDays: 7 };
-  const { plan } = planWith({ tasks, events: [], options: { config } });
+  const { plan } = await planWith({ tasks, events: [], options: { config } });
   assert.equal(plan.scheduled.length, 0);
   assert.equal(plan.deferred[0].reason_code, 'DEADLINE_OUTSIDE_HORIZON');
 });
 
-test('31. high-score unscheduled tasks are explicitly escalated', () => {
+test('31. high-score unscheduled tasks are explicitly escalated', async () => {
   const tasks = [{ id: 'urgent', content: 'Research urgent', labels: [], priority: 4, deadline: { date: '2026-03-08' } }];
   const events = [{
     id: 'block', status: 'confirmed', transparency: 'opaque',
@@ -603,19 +603,19 @@ test('31. high-score unscheduled tasks are explicitly escalated', () => {
     end: { dateTime: '2026-03-08T18:00:00-04:00' },
   }];
   const config = { ...mergedConfig(), highScoreEscalationThreshold: 1 };
-  const { plan } = planWith({ tasks, events, options: { config, days: 1 } });
+  const { plan } = await planWith({ tasks, events, options: { config, days: 1 } });
   assert.equal(plan.unscheduled[0].escalation, true);
   assert.equal(plan.unscheduled[0].escalation_code, 'HIGH_SCORE_UNSCHEDULED');
   assert.ok(plan.warnings.some((item) => item.code === 'HIGH_SCORE_UNSCHEDULED'));
 });
 
-test('32. project daily capacity limits per-project allocation', () => {
+test('32. project daily capacity limits per-project allocation', async () => {
   const tasks = [
     { id: 'p1', content: 'Research one', project_name: 'Research', labels: [], priority: 4, duration: { amount: 60, unit: 'minute' } },
     { id: 'p2', content: 'Research two', project_name: 'Research', labels: [], priority: 3, duration: { amount: 60, unit: 'minute' } },
   ];
   const config = { ...mergedConfig(), projectDailyCapacityMinutes: { Research: 60 }, undatedWipLimit: 5 };
-  const { plan } = planWith({ tasks, events: [], options: { config, days: 1, workingHours: '09:00-12:00' } });
+  const { plan } = await planWith({ tasks, events: [], options: { config, days: 1, workingHours: '09:00-12:00' } });
   assert.equal(plan.scheduled.length, 1);
   assert.equal(plan.unscheduled.length, 1);
 });
@@ -631,7 +631,7 @@ test('33. timezone is unified and legacy todoist timezone flag is rejected', asy
 });
 
 test('23. todoist-only verify ignores calendar state and succeeds after due sync', async () => {
-  const initial = planWith({ options: { todoistOnly: true, syncTodoistDue: true, mode: 'apply', command: 'apply' } });
+  const initial = await planWith({ options: { todoistOnly: true, syncTodoistDue: true, mode: 'apply', command: 'apply' } });
   const taskStore = structuredClone(rawTasks);
   const eventStore = structuredClone(rawEvents);
   const options = makeOptions({ todoistOnly: true, syncTodoistDue: true, mode: 'apply', command: 'apply' });

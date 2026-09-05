@@ -4,7 +4,7 @@ import { buildPlan } from '../src/planner.js';
 import { DEFAULT_CONFIG, PLANNER_VERSION } from '../src/constants.js';
 import { normalizeTodoistTask } from '../src/normalize.js';
 
-test('34. Todoist-only plans persist scheduled slots as busy intervals for subsequent runs', () => {
+test('34. Todoist-only plans persist scheduled slots as busy intervals for subsequent runs', async () => {
   const options = {
     command: 'plan', mode: 'dry-run', date: '2026-03-08', days: 1,
     timezone: 'America/New_York', todoistTimezone: 'America/New_York',
@@ -33,7 +33,7 @@ test('34. Todoist-only plans persist scheduled slots as busy intervals for subse
     }, { excludedLabels: [], assignmentMarkerLabel: 'task-rescheduler-assigned', plannerVersionLabelPrefix: 'task-rescheduler-planner-v' }),
   ];
 
-  const plan = buildPlan({
+  const plan = await buildPlan({
     tasks,
     calendarEvents: [],
     options,

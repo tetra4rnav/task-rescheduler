@@ -34,7 +34,7 @@ function buildTodoistDueOperation(task, scheduledItem, options) {
   };
 }
 
-export function buildPlan({ tasks, calendarEvents, options, runId, generatedAt = isoNow() }) {
+export async function buildPlan({ tasks, calendarEvents, options, runId, generatedAt = isoNow() }) {
   const now = new Date(options.now ?? generatedAt);
   // managesCalendar controls whether the task's OWN previously-managed calendar
   // events are excluded from the busy set (so a task isn't blocked by its own
@@ -115,8 +115,42 @@ export function buildPlan({ tasks, calendarEvents, options, runId, generatedAt =
     formatDateInTimeZone(now, operationalTimezone),
     Number(options.config.deadlineHorizonDays ?? options.days),
   );
-  const scoredCandidates = targetTasks.filter((task) => task.target_reason !== 'PERSISTED_ASSIGNMENT').map((task) => {
-    const duration = estimateDuration(task, options.config);
+  const candidateTasks = targetTasks.filter((task) => task.target_reason !== 'PERSISTED_ASSIGNMENT');
+  // Deterministic durations first. Tasks that fell back to 'default' confidence
+  // may be overridden by the LLM estimator (2026-09-05 design) when enabled.
+  const deterministicDurations = new Map(
+    candidateTasks.map((task) => [task.id, estimateDuration(task, options.config)]),
+  );
+  // Attach the deterministic duration to the task object — the LLM estimator
+  // selects tasks by reading `duration.duration_source === 'default'`.
+  for (const task of candidateTasks) {
+    task.duration = deterministicDurations.get(task.id);
+  }
+  let llmDurations = new Map();
+  if (options.config?.llmDuration?.enabled) {
+    const { estimateDurationsViaLlm } = await import('./llm_duration.js');
+    llmDurations = await estimateDurationsViaLlm(candidateTasks, options.config);
+    if (llmDurations.size > 0) {
+      warnings.push({
+        code: 'LLM_DURATION_APPLIED',
+        message: `${llmDurations.size} task(s) had duration estimated via LLM.`,
+        count: llmDurations.size,
+      });
+    }
+  }
+  const scoredCandidates = candidateTasks.map((task) => {
+    const det = deterministicDurations.get(task.id);
+    let duration = det;
+    const llm = llmDurations.get(task.id);
+    if (llm) {
+      duration = {
+        duration_minutes: llm.minutes,
+        duration_source: 'llm',
+        matched_rule: llm.model,
+        confidence: llm.confidence ?? 0.7,
+        llm_model: llm.model,
+      };
+    }
     const scoreData = computeTaskScore(task, {
       now,
       calendarTimezone: operationalTimezone,
@@ -287,6 +321,7 @@ export function buildPlan({ tasks, calendarEvents, options, runId, generatedAt =
       duration_source: current.duration.duration_source,
       matched_rule: current.duration.matched_rule,
       confidence: current.duration.confidence,
+      llm_model: current.duration.llm_model ?? undefined,
       score: current.score,
       score_breakdown: current.breakdown,
       start,

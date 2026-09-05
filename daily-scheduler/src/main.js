@@ -162,7 +162,7 @@ export async function run(argv = process.argv.slice(2), dependencies = {}) {
     return { exitCode: EXIT_CODES.SUCCESS, output: verifiedMigration };
   }
 
-  const plan = buildPlan({
+  const plan = await buildPlan({
     tasks: state.tasks,
     calendarEvents: state.calendarEvents,
     options,

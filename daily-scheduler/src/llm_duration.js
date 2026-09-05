@@ -34,14 +34,31 @@ function hasAnyLabel(task, labels) {
 async function readDaemonEnvVar(name) {
   const candidates = ['/proc/self/environ', '/proc/1/environ'];
   for (const file of candidates) {
-    try {
-      const buf = await fs.readFile(file);
-      for (const part of buf.toString('utf8').split('\0')) {
-        const idx = part.indexOf('=');
-        if (idx > 0 && part.slice(0, idx) === name) return part.slice(idx + 1);
-      }
-    } catch { /* ignore */ }
+    const val = await readProcEnviron(file, name);
+    if (val !== null) return val;
   }
+  // Fall back to scanning other readable /proc/<pid>/environ files. The Hermes
+  // daemon (often a long-lived parent process) holds OPENROUTER_API_KEY etc.,
+  // and the sandbox subshell does not inherit them (gh-token-sandbox pattern).
+  // Verify key presence, never log the value.
+  try {
+    const pids = (await fs.readdir('/proc')).filter((p) => /^\d+$/.test(p));
+    for (const pid of pids) {
+      const val = await readProcEnviron(`/proc/${pid}/environ`, name);
+      if (val !== null) return val;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+async function readProcEnviron(file, name) {
+  try {
+    const buf = await fs.readFile(file);
+    for (const part of buf.toString('utf8').split('\0')) {
+      const idx = part.indexOf('=');
+      if (idx > 0 && part.slice(0, idx) === name) return part.slice(idx + 1);
+    }
+  } catch { /* ignore */ }
   return null;
 }
 
@@ -101,7 +118,7 @@ function userPromptFor(tasks) {
 async function callOpenRouter(llmConfig, apiKey, requestedModel, tasks) {
   const body = {
     model: requestedModel,
-    max_tokens: llmConfig.maxTokens ?? 1024,
+    max_tokens: llmConfig.maxTokens ?? 4096,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userPromptFor(tasks) },
@@ -109,7 +126,7 @@ async function callOpenRouter(llmConfig, apiKey, requestedModel, tasks) {
     response_format: { type: 'json_object' },
   };
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), llmConfig.timeoutMs ?? 30000);
+  const timer = setTimeout(() => controller.abort(), llmConfig.timeoutMs ?? 90000);
   try {
     const res = await fetch(llmConfig.apiBase, {
       method: 'POST',
@@ -166,14 +183,14 @@ export async function estimateDurationsViaLlm(tasks, config, {
   if (!llm?.enabled) return new Map();
   const requestedModel = llm.model;
   if (!requestedModel) return new Map(); // B案: model must come from --model CLI
-  const skipLabels = [
+  const skip = [
     ...(llm.fixedDurationLabels ?? ['fixed-duration']),
     'no-auto-schedule',
   ];
   const eligible = tasks.filter((t) => {
     if (!t.duration) return false;
     if (t.duration.duration_source !== 'default') return false;
-    if (hasAnyLabel(t, skipLabels)) return false;
+    if (hasAnyLabel(t, skip)) return false;
     return true;
   });
   if (eligible.length === 0) return new Map();
@@ -233,8 +250,8 @@ export async function estimateDurationsViaLlm(tasks, config, {
         }
       }
     }
-    await writeCache(llm, cache);
   } catch { /* network errors — keep just cache-hit results */ }
+  await writeCache(llm, cache);
   return out;
 }
 

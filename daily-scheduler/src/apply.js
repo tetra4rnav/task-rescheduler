@@ -47,7 +47,7 @@ export async function applyPlan(approvedPlan, {
   // options.now must match original generation for testing/drift check otherwise time elapsed alters scores or windows
   const deterministicOptions = { ...options, now: approvedPlan.generated_at };
   
-  const freshPlan = (await import('./planner.js')).buildPlan({
+  const freshPlan = await (await import('./planner.js')).buildPlan({
     tasks: freshState.tasks,
     calendarEvents: freshState.calendarEvents,
     options: deterministicOptions,

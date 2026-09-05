@@ -55,8 +55,13 @@ export const DEFAULT_CONFIG = Object.freeze({
     apiKeyEnv: 'OPENROUTER_API_KEY',
     apiKeyConfigPath: null,
     cachePath: '~/.hermes/cache/task-rescheduler-llm-duration.json',
-    maxTokens: 1024,
-    timeoutMs: 30000,
+    // 1024 was too small for a 30-task batch JSON response — caught only
+    // ~2 results and forced repeated fetches. 4096 fits a full batch
+    // (verified: 30 results / ~667ms via deepseek-v4-flash + auto-beta router).
+    maxTokens: 4096,
+    // auto-beta routes to variable-speed models; allow up to 90s per batch.
+    // Observed abort at the 30s default on slow routed models.
+    timeoutMs: 90000,
     fixedDurationLabels: ['fixed-duration'],
   },
   lowConfidenceManualReviewThreshold: 0.6,
