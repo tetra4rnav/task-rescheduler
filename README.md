@@ -1,6 +1,10 @@
 # task-rescheduler
 
-Deterministic, idempotent Todoist → Google Calendar task rescheduler.
+Todoist タスクの空白時間への再配置（再スケジュール）パイプライン。
+決定論的プランナー（スコア・空き時間ベース）と、LLM が配置を判断する
+LLM 駆動方式（`POLICY.md` に方針を記載）の2方式を備える。
+Google Calendar は**読み取り専用**（予定の空き時間を考慮するのみで、書き込みはしない）。
+書き込む先は Todoist の due datetime のみ。
 
 Repository layout (two top-level folders):
 
