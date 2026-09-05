@@ -1,3 +1,7 @@
 {
-  "allowOverflowPastDeadline": true
+  "allowOverflowPastDeadline": true,
+  "llmDuration": {
+    "enabled": true,
+    "model": "openrouter/auto-beta"
+  }
 }
