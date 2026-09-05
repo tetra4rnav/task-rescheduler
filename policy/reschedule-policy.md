@@ -18,6 +18,9 @@
    明示的理由がある場合は、方針判断として再配置してよい。
 3. **期限(deadline)遵守**: タスクに deadline がある場合、**期限より後に
    配置しない**。due は着手日/開始目標であり、deadline は締切である。
+4. **Google Calendar の扱い**: 再配置は Google Calendar の予定を考慮する。
+   - **Busy の予定**（opaque）には**かぶせない**（避ける）
+   - **Free の予定**（transparent / free）には**かぶせて配置してよい**
 
 ## 1日の時間帯 (EDT)
 
