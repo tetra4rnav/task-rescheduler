@@ -748,7 +748,11 @@ def plan_actions(
             body["deadline_date"] = target_date
 
         if existing:
-            transport.update_task(existing["id"], dict(body))
+            # NOTE: never overwrite Todoist labels on update — the user may
+            # carry personal/project labels we must not touch. Only `create`
+            # seeds the `github-issue` marker.
+            update_body = {k: v for k, v in body.items() if k != "labels"}
+            transport.update_task(existing["id"], update_body)
             current_pid = existing.get("project_id")
             if current_pid != project_id:
                 transport.move_task(existing["id"], project_id)
