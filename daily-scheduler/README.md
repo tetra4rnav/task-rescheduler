@@ -2,6 +2,94 @@
 
 Deterministic, idempotent task-rescheduler.
 
+> **2つの方式があります** (2026-09-05 時点):
+> 1. **決定論的 daily-scheduler**（本READMEの本体）— Todoist + Calendar を読み、スコアで決定的に配置。
+> 2. **LLM駆動再配置 (新方式, 試行)** — 人間が書いた政策 + タスクレジストリJSON から LLM が配置を決め、Todoist due を直接書く。詳細は下記「## LLM駆動再配置 (新方式)」。
+
+---
+
+## LLM駆動再配置 (新方式)
+
+決定論的 daily-scheduler とは独立した、LLM(agent)主導の再配置方式です。
+**試行段階**: 既存方式とは並行運用し、dry-run 比較のうえ安定後に cron を切替えます。
+
+### コンセプト
+
+- **タスクレジストリJSON**（単一永続・毎回更新・フラグ保持）:
+  `$HOME/cron/output/tasks-registry.json`
+  - 再配置対象の全タスクの**識別情報のみ**を格納: `id`, `project`, `is_github_issue`,
+    `owner`, `repo`, `issue_number`, `due`, `priority`, `deadline_at`, `labels`
+  - タスクの詳細（説明文・中身）は格納しない
+  - `rescheduled: true` フラグ + `last_rescheduled_at` を、一度配置したタスクに付与。
+    ファイルが無い場合は新規作成し、以後毎回上書き更新（フラグは保持）
+- **政策markdown**（人間が作成・編集・git管理）: `policy/reschedule-policy.md`
+  - 曜日別稼働時間 / 朝の短時間高優先タスク配置 / タイムゾーン(UTC) など
+    「再配置の方針」を記載
+  - LLM は毎回このファイルを読んでから配置を判断する
+- **書き戻し**: LLM が配置先を決め、Todoist due datetime を直接更新（新方式内で実施）
+
+### フロー
+
+1. `export-registry` でレジストリを更新（Todoist 全タスク取得 → JSON 書き込み）
+2. `policy/reschedule-policy.md` を読む
+3. LLM が レジストリ + 政策 から配置を判断 → placements JSON を作る
+   `[{ task_id, due: "2026-09-06T10:00:00Z" }, ...]`
+4. プレビュー提示 → ユーザー承認待ち
+5. `apply-llm` で Todoist due 更新 + レジストリに `rescheduled` フラグ付与
+6. audit log 記録
+
+### コマンド
+
+```bash
+# レジストリ更新（Todoist 全タスク取得 → JSON 更新, フラグ保持, 標準出力にも出力）
+node src/main.js export-registry --timezone UTC --json
+
+# LLM の配置決定を適用（Todoist due 更新 + レジストリへ rescheduled フラグ）
+node src/main.js apply-llm --timezone UTC --placements /path/to/placements.json
+```
+
+オプション: `--registry-path <path>`（既定 `$HOME/cron/output/tasks-registry.json`）、
+ `--placements <path>`（apply-llm 必須）。
+
+### レジストリJSON スキーマ
+
+```json
+{
+  "schema_version": "1",
+  "updated_at": "2026-09-05T00:00:00.000Z",
+  "tasks": [
+    {
+      "id": "6hMjv6FmPmhh6chQ",
+      "project": "RZDC Philippines",
+      "content": "[RZDC_Philippines_VH #87](...) 量 visualization",
+      "is_github_issue": true,
+      "owner": "tetra4rnav",
+      "repo": "RZDC_Philippines_VH",
+      "issue_number": 87,
+      "due": "2026-09-05",
+      "priority": 1,
+      "deadline_at": "2026-09-08",
+      "labels": ["github-issue"],
+      "rescheduled": false,
+      "last_rescheduled_at": null
+    }
+  ]
+}
+```
+
+### 政策ファイル (policy/reschedule-policy.md)
+
+人間が編集する「再配置方針」markdown。LLM は毎回読んで従う。
+初期雛形が `policy/reschedule-policy.md` にある。内容例:
+- 曜日別の稼働時間 (UTC)
+- 朝は短時間・高優先が先、昼以降は長時間の深い作業
+- 締切(deadline)厳守、due は着手日
+- `rescheduled` 済みタスクは基本動かさない
+
+---
+
+## 既存の決定論的 daily-scheduler
+
 ## Phase 1 task model
 
 Planner version `1.1.0` separates task semantics in JSON:

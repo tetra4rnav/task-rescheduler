@@ -113,6 +113,32 @@ export async function run(argv = process.argv.slice(2), dependencies = {}) {
     return { exitCode: EXIT_CODES.SUCCESS, output: tasksWithDesc };
   }
 
+  if (options.command === 'export-registry') {
+    const { loadRegistry, mergeRegistry, writeRegistry } = await import('./registry.js');
+    const existing = await loadRegistry(options.registryPath);
+    const now = new Date(options.now ?? dependencies.now ?? new Date()).toISOString();
+    const registry = mergeRegistry(existing, state.tasks, { now });
+    const filePath = await writeRegistry(registry, options.registryPath);
+    // Print the registry to stdout (also serves as the source of truth for the LLM).
+    printJson(registry);
+    return { exitCode: EXIT_CODES.SUCCESS, output: registry, registryPath: filePath };
+  }
+
+  if (options.command === 'apply-llm') {
+    if (!options.placementsFile) {
+      throw new InputError('apply-llm requires --placements <path> (JSON array or {placements:[...]})');
+    }
+    const { readPlacements, applyLlmPlacements } = await import('./llm_apply.js');
+    const placements = await readPlacements(options.placementsFile);
+    const result = await applyLlmPlacements(placements, {
+      todoistClient: state.todoistClient,
+      registryPath: options.registryPath,
+      logger,
+    });
+    printJson(result);
+    return { exitCode: EXIT_CODES.SUCCESS, output: result };
+  }
+
   if (options.command === 'migrate-deadlines') {
     if (options.mode !== 'apply') {
       const migrationPlan = buildDeadlineMigrationPlan({

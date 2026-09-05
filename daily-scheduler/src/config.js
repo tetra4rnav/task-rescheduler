@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { DEFAULT_REGISTRY_PATH } from './registry.js';
 import {
   DEFAULT_ACCOUNT,
   DEFAULT_CALENDAR_IDS,
@@ -80,6 +81,7 @@ export async function parseCli(argv, { now = new Date() } = {}) {
     todoistOnly: false,
     noCalendar: false,
     todoistApiBaseUrl: TODOIST_API_BASE_URL,
+    registryPath: DEFAULT_REGISTRY_PATH,
     config: DEFAULT_CONFIG,
     schemaVersion: PLAN_SCHEMA_VERSION,
     plannerVersion: PLANNER_VERSION,
@@ -151,6 +153,12 @@ export async function parseCli(argv, { now = new Date() } = {}) {
         break;
       case '--plan-file':
         parsed.planFile = args[++index];
+        break;
+      case '--registry-path':
+        parsed.registryPath = args[++index];
+        break;
+      case '--placements':
+        parsed.placementsFile = args[++index];
         break;
       case '--overrides':
       case '--overrides-file':
