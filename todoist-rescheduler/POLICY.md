@@ -30,8 +30,17 @@ labels:
 3. **期限(deadline)遵守**: タスクに deadline がある場合、**期限より後に
    配置しない**。due は着手日/開始目標であり、deadline は締切である。
 4. **Google Calendar の扱い**: 再配置は Google Calendar の予定を考慮する。
-   - **Busy の予定**（opaque）には**かぶせない**（避ける）
-   - **Free の予定**（transparent / free）には**かぶせて配置してよい**
+   - **Busy の予定**(opaque)には**かぶせない**(避ける)
+   - **Free の予定**(transparent / free)には**かぶせて配置してよい**
+5. **個別タスクの文脈**: タスク個別の優先度・所要時間・配置ヒントは
+   兄弟ファイル `TASK_CONTEXT.md` を参照。LLM 読込順序は
+   `POLICY.md` → `TASK_CONTEXT.md` の順。
+6. **プロジェクト時間配分(FTE)**: プロジェクト横断の **時間配分**
+   (working week に対する各プロジェクトの FTE%) は
+   `/opt/data/projects/INDEX.md` §FTE Allocation を参照。
+   LLM 読込順序: `POLICY.md` → **`INDEX.md §FTE`** → `TASK_CONTEXT.md`。
+   §FTE の合計超過 = **warn** (hard cap なし、TASK_CONTEXT.md の P1
+   オーバーライドで soft-allow)。
 
 ## ラベル割り当てルール (Label Policy)
 
