@@ -196,11 +196,12 @@ function normalizeStoreState(taskStore, eventStore, options) {
   };
 }
 
-test('1. date-only due tasks require migration instead of being overwritten', () => {
+test('1. date-only due (issue start date) is an earliest-start constraint, not a manual review', () => {
   const { plan } = planWith();
-  const item = plan.manual_review.find((entry) => entry.task_id === 'task-01');
-  assert.ok(item);
-  assert.equal(item.reason_code, 'DATE_ONLY_DUE_REQUIRES_MIGRATION');
+  const item = plan.scheduled.find((entry) => entry.task_id === 'task-01');
+  assert.ok(item, 'date-only due task must be schedulable (no longer manual review)');
+  // start must be at/after the due date (着手日 = earliest start)
+  assert.ok(new Date(item.start) >= new Date('2026-03-06T00:00:00-04:00'));
 });
 
 test('2. Todoist deadline is normalized and used as the hard deadline', () => {
@@ -214,11 +215,13 @@ test('2. Todoist deadline is normalized and used as the hard deadline', () => {
   assert.ok(new Date(item.end) <= new Date('2026-03-09T00:00:00-04:00'));
 });
 
-test('3. unmarked due datetimes are preserved as manual assignments', () => {
+test('3. due datetime (issue start time) becomes an earliest-start constraint', () => {
   const { plan } = planWith();
-  const item = plan.manual_review.find((entry) => entry.task_id === 'task-13');
-  assert.ok(item);
-  assert.equal(item.reason_code, 'MANUAL_ASSIGNMENT_PRESERVED');
+  const item = plan.scheduled.find((entry) => entry.task_id === 'task-13');
+  // task-13 due datetime = 2026-03-08T20:30+09:00 == 2026-03-08T11:30Z == 07:30-04:00
+  // It must not be scheduled before that instant.
+  assert.ok(item, 'due-datetime task must be schedulable as earliest-start');
+  assert.ok(new Date(item.start) >= new Date('2026-03-08T11:30:00Z'));
 });
 
 test('4. recurring tasks are deferred autonomously instead of sent to manual review', () => {

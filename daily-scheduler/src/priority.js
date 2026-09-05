@@ -1,6 +1,6 @@
 import { compareStrings } from './util.js';
 import { formatDateInTimeZone } from './time.js';
-import { taskDeadline } from './normalize.js';
+import { taskDeadline, taskEarliestStart } from './normalize.js';
 
 function daysBetweenDateStrings(a, b) {
   const start = new Date(`${a}T00:00:00Z`);
@@ -24,18 +24,38 @@ export function computeTaskScore(task, {
   const weights = config.scoreWeights;
   const todayInTodoist = formatDateInTimeZone(now, todoistTimezone);
   let overdueDays = 0;
-  
+
+  // OVERDUE applies ONLY to the hard deadline (Todoist deadline = issue target
+  // date). Matt 2026-09-05: due date is the issue START date (着手日), NOT a
+  // deadline — a passed start date does not make a task overdue, it only makes
+  // it eligible to start (handled as earliest-start constraint). Treating due
+  // as overdue inflated scores by up to 450 and skewed scheduling.
   if (task.deadline_at) {
     if (task.deadline_at < todayInTodoist) {
       overdueDays = Math.max(1, daysBetweenDateStrings(task.deadline_at, todayInTodoist));
     }
-  } else if (task.due && task.due.datetime && new Date(task.due.datetime) < now) {
-    overdueDays = Math.max(1, Math.floor((now.getTime() - new Date(task.due.datetime).getTime()) / 86_400_000) + 1);
-  } else if (task.due && task.due.date && task.due.date < todayInTodoist) {
-    overdueDays = Math.max(1, daysBetweenDateStrings(task.due.date, todayInTodoist));
   }
 
   const deadline = taskDeadline(task, { todoistTimezone });
+  // Earliest start (issue start date / 着手日). Must be returned so the planner
+  // can pass it to findSlot as a start constraint and use it for ordering.
+  const earliestStart = taskEarliestStart(task, { todoistTimezone });
+  // Start-date (着手日) urgency: a due date is the issue start date — not a hard
+  // deadline, but it is a "planned start" signal. Tasks whose start date is
+  // near or already passed should pull ahead of unanchored filler, else anchored
+  // work loses priority to low-score backlog (verified regression 2026-09-05).
+  // We compute a bounded pull using the same day-buckets as deadlines but a
+  // fraction of the weight, so it orders without gating.
+  let startDateUrgency = 0;
+  if (earliestStart) {
+    // A due date that has already passed just means "eligible to start" (着手日
+    // passed) — not urgent. Only a start date still AHEAD of today pulls the
+    // task forward, so upcoming-planned work front-loads.
+    const dayDiff = Math.floor((earliestStart.getTime() - now.getTime()) / 86_400_000);
+    if (dayDiff >= 0 && dayDiff < 1) startDateUrgency = Math.round((weights.deadlineSameDay || 350) * 0.5);
+    else if (dayDiff >= 1 && dayDiff < 2) startDateUrgency = Math.round((weights.deadlineNextDay || 250) * 0.5);
+    else if (dayDiff >= 2 && dayDiff < 5) startDateUrgency = Math.round((weights.deadlineSoon || 100) * 0.5);
+  }
   let deadlineUrgency = 0;
   if (deadline && !overdueDays) {
     const dayDiff = Math.floor((deadline.getTime() - now.getTime()) / 86_400_000);
@@ -71,6 +91,7 @@ export function computeTaskScore(task, {
   const score = overdueWeight
     + todoistPriorityWeight
     + deadlineUrgency
+    + startDateUrgency
     + projectWeight
     + ageWeight
     + explicitDurationBonus
@@ -85,6 +106,7 @@ export function computeTaskScore(task, {
       overdue_weight: overdueWeight,
       todoist_priority_weight: todoistPriorityWeight,
       deadline_urgency: deadlineUrgency,
+      start_date_urgency: startDateUrgency,
       project_weight: projectWeight,
       age_weight: ageWeight,
       explicit_duration_bonus: explicitDurationBonus,
@@ -93,6 +115,7 @@ export function computeTaskScore(task, {
       long_task_penalty: longTaskPenalty,
     },
     deadline,
+    earliestStart,
   };
 }
 

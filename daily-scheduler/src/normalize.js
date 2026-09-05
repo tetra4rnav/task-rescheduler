@@ -103,9 +103,18 @@ export function classifyTaskTarget(task, { now, calendarTimezone, todoistTimezon
 }
 
 export function taskDeadline(task, { todoistTimezone }) {
+  // Matt 2026-09-05: Todoist deadline == issue target date == the ONLY hard
+  // deadline. Todoist due date == issue start date == 着手日 (earliest start),
+  // NOT a deadline. Only deadline_at may gate a slot.
   if (task.deadline_at) {
     return endOfDay(task.deadline_at, todoistTimezone);
   }
+  return null;
+}
+
+// Earliest start constraint derived from Todoist due (issue start date / 着手日).
+// A task may not be scheduled to begin before this instant.
+export function taskEarliestStart(task, { todoistTimezone }) {
   if (task.due.datetime) {
     return new Date(task.due.datetime);
   }

@@ -165,7 +165,11 @@ export function buildPlan({ tasks, calendarEvents, options, runId, generatedAt =
   }
 
   const undated = stableSort(
-    horizonEligible.filter((entry) => !entry.task.deadline_at),
+    // "Undated" = no deadline AND no due (start) date. A task with a due date
+    // (issue start / 着手日) is temporally anchored and must not be capped by
+    // the undated WIP limit. Matt 2026-09-05.
+    horizonEligible.filter((entry) =>
+      !entry.task.deadline_at && !entry.task.due.date && !entry.task.due.datetime),
     compareTaskPriority,
   );
   const undatedWipLimit = Number(options.config.undatedWipLimit ?? 8);
@@ -179,7 +183,11 @@ export function buildPlan({ tasks, calendarEvents, options, runId, generatedAt =
       escalation: false,
     });
   }
-  const estimatedTasks = horizonEligible.filter((entry) => entry.task.deadline_at || undatedAllowedIds.has(entry.task.id));
+  const estimatedTasks = horizonEligible.filter((entry) =>
+    // Admit: has hard deadline, OR has a start-date anchor (着手日, not subject
+    // to undated WIP cap), OR is within the undated WIP allowance.
+    entry.task.deadline_at || entry.task.due.date || entry.task.due.datetime || undatedAllowedIds.has(entry.task.id),
+  );
 
   const dayWindows = buildPlanningWindow({
     startDate: options.date,
@@ -230,6 +238,7 @@ export function buildPlan({ tasks, calendarEvents, options, runId, generatedAt =
     const slot = findSlot({
       durationMinutes: current.duration.duration_minutes,
       deadline: hardDeadline,
+      earliestStartTime: current.earliestStart ?? null,
       dayWindows,
       baseBusyIntervals,
       scheduledIntervals,
