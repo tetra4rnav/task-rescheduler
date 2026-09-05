@@ -2,6 +2,19 @@ function keywordMatch(text, keywords) {
   return keywords.find((keyword) => text.includes(keyword));
 }
 
+// Remove markdown links ([text](url)) and bare URLs from text before
+// regex-based duration extraction. URLs/issue-links contain numbers followed
+// by "h" (https) which the duration regex misreads as "N hours" — e.g. an
+// issue "#84" in a GitHub link was parsed as 84 hours. Verified systemic
+// over-estimation 2026-09-05 (ideas-jetro/RZDC tasks inflated 10-100x).
+function stripUrlsAndLinks(text) {
+  return text
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // markdown links -> keep text
+    .replace(/https?:\/\/\S+/gi, '')        // bare URLs
+    .replace(/#\d+/g, '')                   // issue numbers (#84 -> removed)
+    .trim();
+}
+
 export function estimateDuration(task, config) {
   if (task.duration) {
     return {
@@ -24,7 +37,7 @@ export function estimateDuration(task, config) {
     };
   }
 
-  const explicitDurationMatch = /(?<value>\d+(?:\.\d+)?)\s*(?<unit>min|mins|minutes|h|hr|hrs|hour|hours|時間|分)/i.exec(`${task.content} ${task.description}`);
+  const explicitDurationMatch = /(?<value>\d+(?:\.\d+)?)\s*(?<unit>min|mins|minutes|h|hr|hrs|hour|hours|時間|分)/i.exec(stripUrlsAndLinks(`${task.content} ${task.description}`));
   if (explicitDurationMatch?.groups) {
     const amount = Number(explicitDurationMatch.groups.value);
     const unit = explicitDurationMatch.groups.unit.toLowerCase();

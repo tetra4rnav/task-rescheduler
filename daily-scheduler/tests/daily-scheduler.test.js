@@ -305,6 +305,24 @@ test('12. keyword rules estimate deterministic durations', () => {
   assert.equal(duration.duration_minutes, 60);
 });
 
+test('12b. issue numbers in URLs are not misread as hours (2026-09-05 over-estimation regression)', () => {
+  const options = makeOptions();
+  // GitHub-linked task whose issue number (#84) previously matched "N h" in
+  // the URL (https) → was estimated as 84 hours / 5040 min.
+  const task = normalizeTodoistTask({
+    id: 'link-task',
+    content: '[ideas-jetro #84](https://github.com/tetra4rnav/ideas-jetro/issues/84) 2-4 [5] History',
+    description: 'tetra4rnav/ideas-jetro#84\nhttps://github.com/tetra4rnav/ideas-jetro/issues/84\n2-4 [5] History',
+    priority: 1,
+    due: null,
+    created_at: '2026-03-01T00:00:00Z',
+  }, {});
+  const duration = estimateDuration(task, options.config);
+  // Must NOT be 84 hours. If no genuine duration is found, it falls back to
+  // default (45min) — the key assertion is it's not inflated by the URL.
+  assert.ok(duration.duration_minutes <= 120, `duration ${duration.duration_minutes}min should not be inflated`);
+});
+
 test('13. low-confidence ranking falls back to created-at then task id order', () => {
   const { plan } = planWith({
     tasks: rawTasks.map((task) => {
