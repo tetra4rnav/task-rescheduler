@@ -1,9 +1,20 @@
+---
+# 機械可読ラベルルール（daily-scheduler の policy loader が読む。
+# 人間向け解説は下記「## ラベルルール」節。変更時は両方揃えること。）
+labels:
+  exclude_from_reschedule:
+    - no-auto-schedule        # このラベルを持つタスクは自動再配置しない
+  assignment_marker: task-rescheduler-assigned
+  planner_version_prefix: task-rescheduler-planner-v
+  fixed_duration: fixed-duration
+---
+
 # 再配置ポリシー (Reschedule Policy)
 
 このファイルは人間が編集する「再配置の方針」です。LLM（再配置実行時）は
 毎回このファイルを読み、記載された方針に従って Todoist タスクを再配置します。
 
-- **格納場所**: このファイル (`task-rescheduler/todoist-rescheduler/policy/reschedule-policy.md`)、git 管理
+- **格納場所**: このファイル (`task-rescheduler/todoist-rescheduler/POLICY.md`)、git 管理
 - **対象**: 新LLM駆動再配置方式のみ（決定論的 daily-scheduler とは独立）
 - **形式**: Markdown。LLM はここに書かれた方針を構造化して解釈する
 
@@ -21,6 +32,22 @@
 4. **Google Calendar の扱い**: 再配置は Google Calendar の予定を考慮する。
    - **Busy の予定**（opaque）には**かぶせない**（避ける）
    - **Free の予定**（transparent / free）には**かぶせて配置してよい**
+
+## ラベル割り当てルール (Label Policy)
+
+再配置の対象・除外・マーキングは以下で制御する。このファイル冒頭の
+フロントマター（`labels:`）がコードが読む真実の根拠（source of truth）で、
+人間向けの説明はこの節。
+
+- **`no-auto-schedule`**: このラベルを付けたタスクは**自動再配置の対象から除外**する。
+  手動で管理したいタスクに付ける。ハードコードではなく、この POLICY.md を参照して判定する。
+- **`task-rescheduler-assigned`**: このスケジューラが自動配置したタスクに付く
+  （再実行時に自動配置済みと識別するためのマーカー）。
+- **`task-rescheduler-planner-v<version>`**: 配置した planner バージョンを記録するラベル。
+- **`fixed-duration`**: LLM による所要時間推計の対象から除外する（決定論的値を使う）。
+
+> **実装**: 上記ラベル名はファイル冒頭のフロントマター `labels:` に定義。
+> コード（`daily-scheduler`）は POLICY.md を読んでこの値を使う。
 
 ## 1日の時間帯 (EDT)
 

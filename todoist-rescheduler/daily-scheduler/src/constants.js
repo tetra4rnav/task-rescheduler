@@ -36,6 +36,8 @@ export const EXIT_CODES = Object.freeze({
 export const DEFAULT_CONFIG = Object.freeze({
   excludedProjectIds: [],
   excludedProjectNames: [],
+  // default only — the authoritative list is in POLICY.md (front-matter labels.exclude_from_reschedule),
+  // applied at runtime by main.js applyPolicyToConfig(). Kept here as fallback.
   excludedLabels: ['no-auto-schedule'],
   requireAutoScheduleLabel: false,
   autoScheduleLabel: DEFAULT_AUTO_SCHEDULE_LABEL,

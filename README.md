@@ -9,7 +9,7 @@ task-rescheduler/
 ├── todoist-rescheduler/      # Todoist rescheduling pipeline (LLM + deterministic)
 │   ├── rescheduler/          #   orchestrator CLI (run.js, single entry point)
 │   ├── daily-scheduler/      #   planner core (Node.js ESM modules)
-│   ├── policy/               #   LLM reschedule policy (human-edited markdown)
+│   ├── POLICY.md             #   LLM reschedule policy (human-edited markdown)
 │   ├── log_append.py         #   Stage-4 audit logger
 │   ├── daily_effort_append.py
 │   ├── yesterday_reflection.py

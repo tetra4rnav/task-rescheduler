@@ -183,9 +183,19 @@ export async function estimateDurationsViaLlm(tasks, config, {
   if (!llm?.enabled) return new Map();
   const requestedModel = llm.model;
   if (!requestedModel) return new Map(); // B案: model must come from --model CLI
+  // Label rules come from POLICY.md (source of truth, Matt 2026-09-05):
+  // fixed-duration skips LLM duration; no-auto-schedule tasks are excluded from
+  // rescheduling entirely. Fall back to built-ins if policy unavailable.
+  const { loadLabelValues } = await import('./policy.js');
+  let policy;
+  try { policy = await loadLabelValues(); } catch { policy = {}; }
+  const policyFixed = policy.fixedDuration || 'fixed-duration';
   const skip = [
-    ...(llm.fixedDurationLabels ?? ['fixed-duration']),
-    'no-auto-schedule',
+    ...new Set([
+      ...(llm.fixedDurationLabels ?? [policyFixed]),
+      policyFixed,
+      ...((policy.excludeFromReschedule && policy.excludeFromReschedule.length) ? policy.excludeFromReschedule : []),
+    ]),
   ];
   const eligible = tasks.filter((t) => {
     if (!t.duration) return false;

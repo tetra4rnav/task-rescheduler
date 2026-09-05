@@ -22,7 +22,7 @@ Deterministic, idempotent task-rescheduler.
   - タスクの詳細（説明文・中身）は格納しない
   - `rescheduled: true` フラグ + `last_rescheduled_at` を、一度配置したタスクに付与。
     ファイルが無い場合は新規作成し、以後毎回上書き更新（フラグは保持）
-- **政策markdown**（人間が作成・編集・git管理）: `policy/reschedule-policy.md`
+- **政策markdown**（人間が作成・編集・git管理）: `POLICY.md`
   - 曜日別稼働時間 / 朝の短時間高優先タスク配置 / タイムゾーン(UTC) など
     「再配置の方針」を記載
   - LLM は毎回このファイルを読んでから配置を判断する
@@ -31,7 +31,7 @@ Deterministic, idempotent task-rescheduler.
 ### フロー
 
 1. `export-registry` でレジストリを更新（Todoist 全タスク取得 → JSON 書き込み）
-2. `policy/reschedule-policy.md` を読む
+2. `POLICY.md` を読む
 3. LLM が レジストリ + 政策 から配置を判断 → placements JSON を作る
    `[{ task_id, due: "2026-09-06T10:00:00Z" }, ...]`
 4. プレビュー提示 → ユーザー承認待ち
@@ -77,10 +77,10 @@ node src/main.js apply-llm --timezone UTC --placements /path/to/placements.json
 }
 ```
 
-### 政策ファイル (policy/reschedule-policy.md)
+### 政策ファイル (POLICY.md)
 
 人間が編集する「再配置方針」markdown。LLM は毎回読んで従う。
-初期雛形が `policy/reschedule-policy.md` にある。内容例:
+初期雛形が `POLICY.md` にある。内容例:
 - 曜日別の稼働時間 (UTC)
 - 朝は短時間・高優先が先、昼以降は長時間の深い作業
 - 締切(deadline)厳守、due は着手日

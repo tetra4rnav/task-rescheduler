@@ -15,6 +15,7 @@ import { addDaysToDateString, endOfDay, formatRfc3339InTimeZone, startOfDay } fr
 import { TodoistClient, loadTodoistFixture } from './todoist.js';
 import { isoNow, randomRunId } from './util.js';
 import { verifyPlan } from './verify.js';
+import { loadLabelValues } from './policy.js';
 
 function summarizeVerificationPlan(plan) {
   return [
@@ -76,6 +77,22 @@ async function loadState(options, logger) {
   return { tasks, calendarEvents, todoistClient, calendarClient };
 }
 
+// Merge label rules from POLICY.md into a NEW options object (the parseCli
+// result is deep-frozen, so we rebuild it rather than mutate). POLICY.md is the
+// source of truth for label-based exclusion / assignment (M2 2026-09-05);
+// built-in DEFAULT_CONFIG values are only fallbacks.
+async function applyPolicyToOptions(options) {
+  const policy = await loadLabelValues();
+  if (!policy.excludeFromReschedule.length && !policy.assignmentMarker) return options; // no policy → keep
+  const cfg = { ...options.config };
+  if (policy.excludeFromReschedule.length) {
+    cfg.excludedLabels = [...new Set([...(cfg.excludedLabels ?? []), ...policy.excludeFromReschedule])];
+  }
+  if (policy.assignmentMarker) cfg.assignmentMarkerLabel = policy.assignmentMarker;
+  if (policy.plannerVersionPrefix) cfg.plannerVersionLabelPrefix = policy.plannerVersionPrefix;
+  return { ...options, config: Object.freeze(cfg) };
+}
+
 function printJson(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
@@ -90,11 +107,12 @@ function attachEventRfc3339(events, timezone) {
 
 export async function run(argv = process.argv.slice(2), dependencies = {}) {
   const provisionalRunId = randomRunId();
-  const options = await parseCli(argv, { now: dependencies.now ?? new Date() });
+  let options = await parseCli(argv, { now: dependencies.now ?? new Date() });
   if (options.help) {
     process.stdout.write(`${helpText()}\n`);
     return { exitCode: EXIT_CODES.SUCCESS, output: null };
   }
+  options = await applyPolicyToOptions(options);
   const logger = createLogger({ runId: provisionalRunId, verbose: options.verbose, stderr: dependencies.stderr ?? process.stderr });
   const generatedAt = isoNow(new Date(options.now ?? dependencies.now ?? new Date()));
   const state = await loadState(options, logger);
