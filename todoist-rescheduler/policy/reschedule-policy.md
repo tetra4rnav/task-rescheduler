@@ -3,7 +3,7 @@
 このファイルは人間が編集する「再配置の方針」です。LLM（再配置実行時）は
 毎回このファイルを読み、記載された方針に従って Todoist タスクを再配置します。
 
-- **格納場所**: このファイル (`task-rescheduler/policy/reschedule-policy.md`)、git 管理
+- **格納場所**: このファイル (`task-rescheduler/todoist-rescheduler/policy/reschedule-policy.md`)、git 管理
 - **対象**: 新LLM駆動再配置方式のみ（決定論的 daily-scheduler とは独立）
 - **形式**: Markdown。LLM はここに書かれた方針を構造化して解釈する
 

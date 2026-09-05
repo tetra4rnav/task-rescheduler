@@ -2,21 +2,75 @@
 
 Deterministic, idempotent Todoist → Google Calendar task rescheduler.
 
-Splits into two layers:
+Repository layout (two top-level folders):
 
-- `rescheduler/` — orchestrator CLI (single entry point, run.js; ~165 lines).
-- `daily-scheduler/` — planner core (Node.js ESM modules; ~2,600 lines).
+```
+task-rescheduler/
+├── todoist-rescheduler/      # Todoist rescheduling pipeline (LLM + deterministic)
+│   ├── rescheduler/          #   orchestrator CLI (run.js, single entry point)
+│   ├── daily-scheduler/      #   planner core (Node.js ESM modules)
+│   ├── policy/               #   LLM reschedule policy (human-edited markdown)
+│   ├── log_append.py         #   Stage-4 audit logger
+│   ├── daily_effort_append.py
+│   ├── yesterday_reflection.py
+│   ├── todoist_today.py
+│   ├── today_dashboard.py
+│   ├── hub_sync.py
+│   └── project_hub_sync_gate.py
+└── todoist-github-sync/      # GitHub Issue → Todoist one-way sync
+    ├── github_todoist_sync.py
+    ├── migrate_openclaw_registry.py
+    ├── schema.example.json
+    └── README.md
+```
 
-Python helpers in the repository root support memory writeback and dashboard
-rendering:
+## Repo root (single source of truth)
 
-- `daily_effort_append.py` — appends today's project effort table to a daily log.
-- `yesterday_reflection.py` — Toggl vs Todoist comparison for prior-day review.
-- `todoist_today.py` — emits today's pending Todoist tasks.
-- `today_dashboard.py` — renders a one-page HTML dashboard for today.
-- `hub_sync.py` and `project_hub_sync_gate.py` — project hub mirror helpers.
+The repo root is resolved from `~/.hermes/configs/task-rescheduler.json`
+(`repo_root` key) — never hard-coded. External wrappers (cron scripts) and the
+Hermes skill read it from there. If the repo moves, update that one file.
 
-## GitHub Issue → Todoist sync
+```bash
+# Resolve repo root
+export TASK_RESCHEDULER_DIR=$(python3 -c \
+  'import json,os;print(json.load(open(os.path.expanduser("~/.hermes/configs/task-rescheduler.json")))["repo_root"])')
+```
+
+Env override: `TASK_RESCHEDULER_DIR` wins if it points to an existing dir.
+
+## todoist-rescheduler
+
+The Todoist rescheduling pipeline. Two layers:
+
+- `rescheduler/` — orchestrator CLI (single entry point, run.js).
+- `daily-scheduler/` — planner core (Node.js ESM modules).
+
+The planner is deterministic; an optional LLM pass (via `--model` or
+`llmDuration.enabled`) overrides only the `default`-confidence duration
+estimates (see `daily-scheduler/README.md`).
+
+Python helpers support memory writeback and dashboard rendering:
+`log_append.py` (audit), `daily_effort_append.py`, `yesterday_reflection.py`,
+`todoist_today.py`, `today_dashboard.py`, `hub_sync.py`,
+`project_hub_sync_gate.py`.
+
+### Rescheduler usage (todoist-rescheduler)
+
+```bash
+# Dry-run plan (read-only, JSON to stdout)
+node todoist-rescheduler/rescheduler/run.js --dry-run --timezone UTC
+
+# Apply plan (writes scheduled due datetimes back to Todoist)
+node todoist-rescheduler/rescheduler/run.js --apply --timezone UTC
+
+# Calendar-free mode (Todoist due only)
+node todoist-rescheduler/rescheduler/run.js --apply --no-calendar --timezone UTC
+```
+
+See `todoist-rescheduler/daily-scheduler/README.md` for planner details, exit
+codes, and full option reference.
+
+## todoist-github-sync
 
 A separate, standalone subpackage that pulls GitHub Issues (and optional
 GitHub Projects dates) into Todoist tasks. GitHub is authoritative;
@@ -34,48 +88,8 @@ for schema, usage, and operational notes.
 
 - Node.js ≥ 24.
 - A valid `TODOIST_API_TOKEN` in the environment.
-- Read-only Google Calendar access via `gog --account your-email@example.com calendar list`
-  (Calendar is consumed only, never written to).
-
-## Quick start
-
-```bash
-# Dry-run plan (read-only, JSON to stdout)
-node rescheduler/run.js --dry-run --timezone UTC
-
-# Apply plan (writes scheduled due datetimes back to Todoist)
-node rescheduler/run.js --apply --timezone UTC
-
-# Calendar-free mode (Todoist due only)
-node rescheduler/run.js --apply --no-calendar --timezone UTC
-```
-
-## Architecture
-
-```
-+-------------------+     +-----------------------+
-| Todoist /tasks    | --> | rescheduler/run.js    |
-+-------------------+     +-----------+-----------+
-                                      |
-                       +--------------+--------------+
-                       |          daily-scheduler/bin |
-                       +--------------+--------------+
-                                      v
-                       +--------------------------+
-                       | planner + availability   |
-                       +-----------+--------------+
-                                   v
-                          source of truth JSON
-                          (no LLM re-evaluation)
-```
-
-`assignment_source` in plan output is `manual` or `task-rescheduler`.
-Tasks scheduled by this scheduler carry the Todoist labels
-`task-rescheduler-assigned` and `task-rescheduler-planner-v<version>`.
-Manual due datetimes that lack those labels are never overwritten.
-
-See `daily-scheduler/README.md` for planner details, exit codes, and the
-full option reference.
+- Read-only Google Calendar access via the google-workspace skill's
+  `google_api.py` (Calendar is consumed only, never written to).
 
 ## License
 
