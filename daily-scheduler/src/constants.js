@@ -47,6 +47,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   operationalTimezone: DEFAULT_TIMEZONE,
   deadlineHorizonDays: 14,
   undatedWipLimit: 8,
+  allowOverflowPastDeadline: false,
   lowConfidenceManualReviewThreshold: 0.6,
   lowConfidenceManualReviewLimit: 3,
   highScoreEscalationThreshold: 80,

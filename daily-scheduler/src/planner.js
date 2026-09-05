@@ -239,6 +239,7 @@ export function buildPlan({ tasks, calendarEvents, options, runId, generatedAt =
       durationMinutes: current.duration.duration_minutes,
       deadline: hardDeadline,
       earliestStartTime: current.earliestStart ?? null,
+      allowOverflowPastDeadline: Boolean(options.config.allowOverflowPastDeadline),
       dayWindows,
       baseBusyIntervals,
       scheduledIntervals,

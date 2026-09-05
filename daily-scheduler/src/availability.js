@@ -63,38 +63,49 @@ export function findSlot({
   projectDailyCapacityMinutes = {},
   earliestStartTime = null,
   fixedStartTime = null,
+  allowOverflowPastDeadline = false,
 }) {
   const scheduledBusy = scheduledIntervals.map((interval) => ({
     start: interval.start,
     end: addMinutes(interval.end, breakMinutes),
   })).sort((a, b) => a.start - b.start);
 
-  for (const day of dayWindows) {
-    if ((dailyAllocatedMinutes.get(day.date) ?? 0) + durationMinutes > maxDailyMinutes) continue;
-    const projectLimit = projectDailyCapacityMinutes[projectName ?? ''];
-    const projectDayKey = `${projectName ?? ''}\u0000${day.date}`;
-    if (Number.isFinite(projectLimit)
-      && (projectDailyAllocatedMinutes.get(projectDayKey) ?? 0) + durationMinutes > projectLimit) continue;
-    const free = subtractIntervals(day.base, [
-      ...day.blocked,
-      ...baseBusyIntervals,
-      ...scheduledBusy,
-    ]);
-    for (const slot of free) {
-      let candidateStart = slot.start;
-      if (earliestStartTime) {
-        const earliest = new Date(earliestStartTime);
-        if (candidateStart < earliest) candidateStart = earliest;
+  // Two-pass deadline handling (Matt 2026-09-05): first try to fit within the
+  // hard deadline strictly. If no slot fits before the deadline AND overflow is
+  // enabled, a second relaxed pass allows scheduling PAST the deadline (task
+  // becomes overdue rather than left unscheduled).
+  const passes = allowOverflowPastDeadline && deadline ? [true, false] : [true];
+
+  for (const enforceDeadline of passes) {
+    for (const day of dayWindows) {
+      if ((dailyAllocatedMinutes.get(day.date) ?? 0) + durationMinutes > maxDailyMinutes) continue;
+      const projectLimit = projectDailyCapacityMinutes[projectName ?? ''];
+      const projectDayKey = `${projectName ?? ''}\u0000${day.date}`;
+      if (Number.isFinite(projectLimit)
+        && (projectDailyAllocatedMinutes.get(projectDayKey) ?? 0) + durationMinutes > projectLimit) continue;
+      const free = subtractIntervals(day.base, [
+        ...day.blocked,
+        ...baseBusyIntervals,
+        ...scheduledBusy,
+      ]);
+      for (const slot of free) {
+        let candidateStart = slot.start;
+        if (earliestStartTime) {
+          const earliest = new Date(earliestStartTime);
+          if (candidateStart < earliest) candidateStart = earliest;
+        }
+        if (fixedStartTime) {
+          const fixed = new Date(fixedStartTime);
+          if (fixed < slot.start || fixed > slot.end) continue;
+          candidateStart = fixed;
+        }
+        const candidateEnd = addMinutes(candidateStart, durationMinutes);
+        if (candidateEnd > slot.end) continue;
+        // Only enforce the deadline in the strict pass; the relaxed pass
+        // (overflow) deliberately omits this gate.
+        if (enforceDeadline && deadline && candidateEnd > deadline) continue;
+        return { date: day.date, start: candidateStart, end: candidateEnd };
       }
-      if (fixedStartTime) {
-        const fixed = new Date(fixedStartTime);
-        if (fixed < slot.start || fixed > slot.end) continue;
-        candidateStart = fixed;
-      }
-      const candidateEnd = addMinutes(candidateStart, durationMinutes);
-      if (candidateEnd > slot.end) continue;
-      if (deadline && candidateEnd > deadline) continue;
-      return { date: day.date, start: candidateStart, end: candidateEnd };
     }
   }
   return null;
