@@ -457,61 +457,44 @@ class TodoistTransport:
 
     def set_parent(self, task_id: str, parent_id: Optional[str]) -> None:
         # parent_id is NOT writable through the REST API's POST /tasks/{id}
-        # (returns HTTP 400 "no supported fields"). The Sync API's
-        # item_update command is the only path that updates parent_id on an
-        # existing task; we queue and flush in `commit_links()`.
+        # and the Sync API's item_update silently ACCEPTS the command (returns
+        # sync_status "ok") but never applies it — verified live 2026-09-05:
+        # every issue had parent_id=None in Todoist after item_update, while
+        # REST POST /tasks/{id}/move set it immediately. So we queue the link
+        # and flush via REST move in `commit_links()`.
         self._pending_parents.append((task_id, parent_id))
 
     def set_dependencies(self, task_id: str, dependency_ids: list[str]) -> None:
-        # Sync API is the only way to write dependency_ids; we accumulate
-        # and flush via `commit_links()` after Pass 2.
+        # No working write path found for dependency_ids as of 2026-09-05:
+        # Sync API item_update silently no-ops it (returns "ok", nothing
+        # changes) and REST POST /tasks/{id} rejects it (400). Collected here
+        # for bookkeeping only; commit_links() deliberately does not send them.
         self._pending_dependencies.append((task_id, dependency_ids))
 
     def commit_links(self) -> dict:
-        """Flush queued parent_id + dependency_ids writes via the Sync API
-        in one round-trip.
+        """Flush queued parent links via REST POST /tasks/{id}/move.
+        dependency_ids are not flushed (no working write path).
 
-        Both `parent_id` and `dependency_ids` are NOT writable through the
-        REST API; the Sync API `item_update` command is the only path that
-        updates them on an existing task. We collect both queues into a
-        single /sync call to minimise API round-trips.
-
-        Returns a dict with `parents` and `deps` lists, each item being
-        `{"task_id": ..., "value": ...}` for parents (value is the
-        parent_id or None) or `{"task_id": ..., "deps": [...]}` for deps.
+        Returns {"parents": [...]} with each item {"task_id", "parent_id"}.
         Idempotent: empties both queues after the request is issued.
         """
-        parent_cmds = [
-            {
-                "type": "item_update",
-                "uuid": f"parent-{task_id}",
-                "args": {"id": task_id, "parent_id": parent_id},
-            }
-            for task_id, parent_id in self._pending_parents
-        ]
-        dep_cmds = [
-            {
-                "type": "item_update",
-                "uuid": f"dep-{task_id}",
-                "args": {"id": task_id, "dependency_ids": deps},
-            }
-            for task_id, deps in self._pending_dependencies
-        ]
-        if not parent_cmds and not dep_cmds:
-            return {"parents": [], "deps": []}
-        body = {"commands": parent_cmds + dep_cmds}
-        self.client.request("POST", "/sync", body=body)
-        parent_records = [
-            {"task_id": t, "parent_id": p}
-            for t, p in self._pending_parents
-        ]
-        dep_records = [
-            {"task_id": t, "deps": list(d)}
-            for t, d in self._pending_dependencies
-        ]
+        moves: list[dict] = []
+        for task_id, parent_id in self._pending_parents:
+            # A sub-issue whose GitHub parent has no Todoist task yet is
+            # skipped — REST move with parent_id=None errors, and there is
+            # nothing meaningful to link to.
+            if parent_id is None:
+                continue
+            self.client.request(
+                "POST", f"/tasks/{task_id}/move",
+                body={"parent_id": parent_id},
+            )
+            moves.append({"task_id": task_id, "parent_id": parent_id})
         self._pending_parents = []
+        # dependency_ids have no working write path; drop instead of issuing
+        # a silently-accepted-but-unapplied Sync API command.
         self._pending_dependencies = []
-        return {"parents": parent_records, "deps": dep_records}
+        return {"parents": moves, "deps": []}
 
 
 @dataclass
