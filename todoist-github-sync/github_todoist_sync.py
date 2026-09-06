@@ -725,10 +725,25 @@ def plan_actions(
         date_locked = bool(
             existing and DATE_LOCK_LABEL in (existing.get("labels") or [])
         )
-        if start_date and not date_locked:
-            body["due_date"] = start_date
-        if target_date and not date_locked:
-            body["deadline_date"] = target_date
+        # If the Todoist task carries a timed due (datetime set), preserve
+        # the operator's time and skip the date-only update from GitHub.
+        # `deadline` has no time component in Todoist so deadline_date is
+        # always written (unless date-locked killswitch fires). CREATE has
+        # no existing Todoist task so both fields write unconditionally.
+        due_has_time = bool(
+            existing and (existing.get("due") or {}).get("datetime")
+        )
+        skipped_dates: list[str] = []
+        if start_date:
+            if date_locked or due_has_time:
+                skipped_dates.append("due")
+            else:
+                body["due_date"] = start_date
+        if target_date:
+            if date_locked:
+                skipped_dates.append("deadline")
+            else:
+                body["deadline_date"] = target_date
 
         if existing:
             # NOTE: never overwrite Todoist labels on update — the user may
@@ -742,11 +757,14 @@ def plan_actions(
             added = _mirror_comments(
                 transport, existing["id"], issue, fetch_c(existing["id"]),
             )
-            log.append({
+            updated_log: dict = {
                 "owner": owner, "repo": repo_name, "number": issue["number"],
                 "action": "updated",
                 "comments_added": added,
-            })
+            }
+            if skipped_dates:
+                updated_log["skipped_dates"] = skipped_dates
+            log.append(updated_log)
             self_task_id = existing["id"]
         else:
             create_body = dict(body)
