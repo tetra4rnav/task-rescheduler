@@ -101,3 +101,13 @@ created: 2026-09-05
 | 6hMxWv3mxv4QP7JG | JETRO #55 4⑦ Final Pres | P3 | 60 | EDT 夜(限定) | github-issue | 2027-01-07 LIVE |
 | 6hMxWv2rp3hrPWvG | JETRO #56 4⑧ Final Pres | P3 | 60 | EDT 夜(限定) | github-issue | 2027-01-14 LIVE |
 
+### DAGpedia (meta-issue → 12 sub-issues)
+
+- **meta-issue**: https://github.com/diaphana-io/dagpedia-meta/issues/13
+  (title: "DAGpedia バックログ整理 (A→E 5 phases, 12 issues)")
+- **12 sub-issues**: `gh issue list subIssues` で meta-issue に紐付け済み (2026-09-05)
+- **配置 guard**: TASK_CONTEXT の priority/duration は A→E 順守のヒント。
+  meta-issue URL は §DAGpedia セクションのアンカー
+- 各 sub-issue の `priority/duration/preferred_window` は Matt が指定する
+  まで `default: P2 / 120min / EDT 昼(深い)` で初期化。優先度変更は同セクションに patch
+
