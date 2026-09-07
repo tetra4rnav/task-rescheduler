@@ -126,7 +126,7 @@ All three call the same CLI. Run `--dry-run` first.
    The mapping is a variable on purpose: it is not a credential, and a secret would be painful to edit. It is still not in git.
 
 3. Enable Actions if a fork disabled them.
-4. Actions → **GitHub → Todoist sync** → Run workflow with **Plan only** checked. Inspect `skipped_dates` and `WARN:` lines.
+4. Actions → **GitHub → Todoist sync** → Run workflow with **Plan only** checked. In the **Run sync** step, read the `=== GitHub → Todoist (dry-run, no writes) ===` block (counts + per-issue Changes). `WARN:` lines and `skip-bad-project` mean the mapping is wrong.
 5. Run again with Plan only unchecked. The `*/10 * * * *` schedule then applies on its own.
 
 Scheduled workflows can drift by several minutes. On a public repo they pause after about 60 days with no repository activity. Fork pull requests do not receive secrets.

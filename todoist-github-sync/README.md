@@ -112,6 +112,13 @@ python3 todoist-github-sync/github_todoist_sync.py \
 
 Both modes expect `TODOIST_API_TOKEN` in the environment.
 
+Every run prints two reports:
+
+- **stderr** — a human-readable **Changes** list: counts, then create / update / close / bad-id rows grouped by `owner/repo`, with issue number, title, and why it would write (title, description, due, comments, parent). `skip-closed-no-task` and no-op `unchanged` tasks are counted but not listed. GitHub Actions shows this in the **Run sync** step.
+- **stdout** — the same data as JSON (`summary`, `log`, and in dry-run `would_call`). Use `--json-only` to suppress the stderr list.
+
+`--dry-run` still does not write to Todoist. Review the Changes list (and `skipped_dates`) before apply.
+
 ## Migrating from openclaw-mirror
 
 If you have an existing `openclaw-mirror/scripts/project_registry.json`,

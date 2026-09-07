@@ -19,6 +19,7 @@ LABEL = _sync.LABEL
 DATE_LOCK_LABEL = _sync.DATE_LOCK_LABEL
 parse_repo_spec = _sync.parse_repo_spec
 ConfigError = _sync.ConfigError
+format_human_report = _sync.format_human_report
 
 
 def _body() -> dict:
@@ -204,6 +205,34 @@ class PlanActionsDateSkipTests(unittest.TestCase):
         self.assertNotIn("due_date", updates[0]["body"])
         self.assertNotIn("deadline_date", updates[0]["body"])
         self.assertEqual(log[0]["skipped_dates"], ["due", "deadline"])
+        self.assertEqual(log[0]["action"], "updated")
+        self.assertIn("description", log[0]["changes"])
+
+    def test_unchanged_skips_update_call(self):
+        issue = _issue()
+        existing = {
+            "id": "task-1",
+            "project_id": "proj-1",
+            "labels": [LABEL],
+            "content": f"[repo #{issue['number']}]({issue['url']}) {issue['title']}",
+            "description": _sync.build_description(
+                "me", "repo", issue["number"], issue["title"], issue["url"],
+            ),
+            "due": {"date": "2026-09-05"},
+            "deadline": {"date": "2026-09-20"},
+        }
+        transport = RecordingTransport()
+        log = plan_actions(
+            _config(),
+            [issue],
+            {("me", "repo", 1): existing},
+            {("me", "repo", 1): ("2026-09-01", "2026-09-10")},
+            {"proj-1": {"id": "proj-1", "name": "TodoistP"}},
+            transport,
+        )
+        self.assertEqual([c["op"] for c in transport.calls], [])
+        self.assertEqual(log[0]["action"], "unchanged")
+        self.assertNotIn("changes", log[0])
 
     def test_create_writes_github_dates(self):
         transport = RecordingTransport()
@@ -219,6 +248,68 @@ class PlanActionsDateSkipTests(unittest.TestCase):
         self.assertEqual(len(creates), 1)
         self.assertEqual(creates[0]["body"]["due_date"], "2026-09-01")
         self.assertEqual(creates[0]["body"]["deadline_date"], "2026-09-10")
+
+
+class HumanReportTests(unittest.TestCase):
+    def test_lists_writes_grouped_by_repo(self):
+        text = format_human_report(
+            [
+                {
+                    "owner": "me", "repo": "alpha", "number": 3,
+                    "title": "New thing", "action": "created",
+                    "comments_added": 0,
+                },
+                {
+                    "owner": "me", "repo": "alpha", "number": 1,
+                    "title": "Rename the board", "action": "updated",
+                    "comments_added": 2,
+                    "changes": ["title"],
+                    "skipped_dates": ["due"],
+                },
+                {
+                    "owner": "me", "repo": "beta", "number": 9,
+                    "title": "Done", "action": "closed",
+                },
+                {
+                    "owner": "me", "repo": "alpha", "number": 8,
+                    "title": "Old closed issue",
+                    "action": "skip-closed-no-task",
+                },
+            ],
+            dry_run=True,
+            summary={
+                "created": 1, "updated": 1, "closed": 1,
+                "skip-closed-no-task": 1,
+            },
+            projects_in_config=2,
+            issue_count=4,
+            managed_todoist_tasks=3,
+        )
+        self.assertIn("dry-run, no writes", text)
+        self.assertIn("2 projects · 4 issues · 3 managed Todoist tasks", text)
+        self.assertIn("Changes (3)", text)
+        self.assertIn("me/alpha", text)
+        self.assertIn("#3     create         New thing", text)
+        self.assertIn("#1     update         Rename the board", text)
+        self.assertIn("title", text)
+        self.assertIn("comments +2", text)
+        self.assertIn("keep Todoist due", text)
+        self.assertIn("me/beta", text)
+        self.assertIn("#9     close          Done", text)
+        self.assertNotIn("Old closed issue", text)
+        self.assertIn("Not listed: 1 skipped/unchanged", text)
+
+    def test_empty_log(self):
+        text = format_human_report(
+            [],
+            dry_run=False,
+            summary={},
+            projects_in_config=0,
+            issue_count=0,
+            managed_todoist_tasks=0,
+        )
+        self.assertIn("(apply)", text)
+        self.assertIn("No Todoist writes to review.", text)
 
 
 if __name__ == "__main__":

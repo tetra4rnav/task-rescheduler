@@ -608,6 +608,127 @@ def build_description(owner: str, repo: str, number: int, title: str, url: str) 
     return f"{owner}/{repo}#{number}\n{url}\n{title}"
 
 
+def _update_field_changes(existing: dict, update_body: dict) -> list[str]:
+    """Todoist fields that would actually change on update (not no-ops)."""
+    changed: list[str] = []
+    if existing.get("content") != update_body.get("content"):
+        changed.append("title")
+    if (existing.get("description") or "") != (update_body.get("description") or ""):
+        changed.append("description")
+    if "due_date" in update_body:
+        changed.append("due")
+    if "deadline_date" in update_body:
+        changed.append("deadline")
+    return changed
+
+
+# Actions that a human reviewing a dry-run should read line-by-line.
+# skip-closed-no-task / unchanged stay in the JSON log and the counts.
+LISTED_ACTIONS = frozenset({
+    "created", "updated", "closed", "create-failed",
+    "skip-bad-project", "skip-no-entry",
+})
+
+_ACTION_VERBS = {
+    "created": "create",
+    "updated": "update",
+    "closed": "close",
+    "create-failed": "create-failed",
+    "skip-bad-project": "bad-todoist-id",
+    "skip-no-entry": "no-config",
+}
+
+
+def _clip(text: str, width: int = 72) -> str:
+    text = " ".join((text or "").split())
+    if len(text) <= width:
+        return text
+    return text[: width - 3] + "..."
+
+
+def format_human_report(
+    log: list[dict],
+    *,
+    dry_run: bool,
+    summary: dict[str, int],
+    projects_in_config: int,
+    issue_count: int,
+    managed_todoist_tasks: int,
+) -> str:
+    """Stderr-friendly list of Todoist writes, grouped by owner/repo."""
+    mode = "dry-run, no writes" if dry_run else "apply"
+    lines = [
+        f"=== GitHub → Todoist ({mode}) ===",
+        "",
+        (
+            f"{projects_in_config} projects · {issue_count} issues · "
+            f"{managed_todoist_tasks} managed Todoist tasks"
+        ),
+        "",
+    ]
+    if summary:
+        width = max(len(k) for k in summary)
+        for action, n in sorted(summary.items(), key=lambda kv: (-kv[1], kv[0])):
+            lines.append(f"  {action:<{width}}  {n}")
+    else:
+        lines.append("  (empty log)")
+
+    listed = [e for e in log if e.get("action") in LISTED_ACTIONS]
+    lines.append("")
+    if not listed:
+        lines.append("No Todoist writes to review.")
+    else:
+        lines.append(f"Changes ({len(listed)})")
+        lines.append("--------")
+        current_repo: Optional[str] = None
+        for entry in listed:
+            repo = f"{entry.get('owner')}/{entry.get('repo')}"
+            if repo != current_repo:
+                current_repo = repo
+                lines.append("")
+                lines.append(repo)
+            verb = _ACTION_VERBS.get(entry["action"], entry["action"])
+            title = _clip(str(entry.get("title") or ""))
+            lines.append(f"  #{entry['number']:<5} {verb:<14} {title}")
+            details: list[str] = []
+            if entry.get("changes"):
+                details.append(", ".join(entry["changes"]))
+            added = entry.get("comments_added") or 0
+            if added:
+                details.append(f"comments +{added}")
+            skipped = entry.get("skipped_dates") or []
+            if skipped:
+                details.append("keep Todoist " + ", ".join(skipped))
+            links = entry.get("links") or {}
+            parent = links.get("parent")
+            if parent:
+                flag = "ok" if parent.get("linked") else "missing Todoist parent"
+                details.append(f"parent #{parent.get('github_number')} ({flag})")
+            blocked = links.get("blocked_by")
+            if blocked:
+                nums = blocked.get("github_numbers") or []
+                details.append(
+                    "blocked-by " + ", ".join(f"#{n}" for n in nums)
+                )
+            if entry.get("todoist_project_id"):
+                details.append(
+                    f"todoist_project_id={entry['todoist_project_id']}"
+                )
+            for detail in details:
+                lines.append(f"           {detail}")
+
+    omitted = sum(
+        n for action, n in summary.items() if action not in LISTED_ACTIONS
+    )
+    if omitted:
+        lines.append("")
+        lines.append(
+            f"Not listed: {omitted} skipped/unchanged (counts above; JSON log has each)."
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _todoist_has_due(task: Optional[dict]) -> bool:
     """True when the Todoist task already has a due date or datetime."""
     if not task:
@@ -777,6 +898,7 @@ def plan_actions(
         if match_entry is None:
             log.append({
                 "owner": owner, "repo": repo_name, "number": issue["number"],
+                "title": issue.get("title") or "",
                 "action": "skip-no-entry",
             })
             continue
@@ -785,6 +907,7 @@ def plan_actions(
         if project is None:
             log.append({
                 "owner": owner, "repo": repo_name, "number": issue["number"],
+                "title": issue.get("title") or "",
                 "action": "skip-bad-project",
                 "todoist_project_id": todoist_pid,
             })
@@ -799,11 +922,13 @@ def plan_actions(
                 transport.close_task(existing["id"])
                 log.append({
                     "owner": owner, "repo": repo_name, "number": issue["number"],
+                    "title": issue.get("title") or "",
                     "action": "closed",
                 })
             else:
                 log.append({
                     "owner": owner, "repo": repo_name, "number": issue["number"],
+                    "title": issue.get("title") or "",
                     "action": "skip-closed-no-task",
                 })
             continue
@@ -836,18 +961,25 @@ def plan_actions(
             # carry personal/project labels we must not touch. Only `create`
             # seeds the `github-issue` marker.
             update_body = {k: v for k, v in body.items() if k != "labels"}
-            transport.update_task(existing["id"], update_body)
+            changed = _update_field_changes(existing, update_body)
+            if changed:
+                transport.update_task(existing["id"], update_body)
             current_pid = existing.get("project_id")
             if current_pid is not None and str(current_pid) != project_id:
                 transport.move_task(existing["id"], project_id)
+                changed.append("project")
             added = _mirror_comments(
                 transport, existing["id"], issue, fetch_c(existing["id"]),
             )
+            action = "updated" if (changed or added) else "unchanged"
             updated_log: dict = {
                 "owner": owner, "repo": repo_name, "number": issue["number"],
-                "action": "updated",
+                "title": title,
+                "action": action,
                 "comments_added": added,
             }
+            if changed:
+                updated_log["changes"] = changed
             if skipped_dates:
                 updated_log["skipped_dates"] = skipped_dates
             log.append(updated_log)
@@ -859,6 +991,7 @@ def plan_actions(
             if new_id is None:
                 log.append({
                     "owner": owner, "repo": repo_name, "number": issue["number"],
+                    "title": title,
                     "action": "create-failed",
                 })
                 continue
@@ -867,6 +1000,7 @@ def plan_actions(
             )
             log.append({
                 "owner": owner, "repo": repo_name, "number": issue["number"],
+                "title": title,
                 "action": "created",
                 "comments_added": added,
             })
@@ -1017,6 +1151,10 @@ def main(argv=None) -> int:
         "--dry-run", action="store_true",
         help="plan only; do not write to Todoist",
     )
+    parser.add_argument(
+        "--json-only", action="store_true",
+        help="do not print the human-readable Changes list on stderr",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -1093,6 +1231,19 @@ def main(argv=None) -> int:
         payload["warnings"] = warnings
     if soft_warnings:
         payload["soft_warnings"] = soft_warnings
+    if not args.json_only:
+        print(
+            format_human_report(
+                log,
+                dry_run=bool(args.dry_run),
+                summary=summary,
+                projects_in_config=len(config["projects"]),
+                issue_count=len(issues),
+                managed_todoist_tasks=len(tasks_by_issue),
+            ),
+            file=sys.stderr,
+            end="",
+        )
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
