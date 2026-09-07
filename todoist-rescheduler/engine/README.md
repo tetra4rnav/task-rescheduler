@@ -154,7 +154,7 @@ This implementation moves task fetching, calendar fetching, target extraction, d
 bin/daily-scheduler.js      CLI entrypoint
 src/config.js               CLI parsing and config merge
 src/todoist.js              Todoist API client + pagination + retry
-src/calendar.js             Google Calendar read-only adapter (google_api.py)
+src/calendar.js             Google Calendar read-only adapter (secret iCal / ICS URL)
 src/normalize.js            Input normalization
 src/duration.js             Deterministic duration estimation
 src/priority.js             Deterministic score calculation
@@ -182,9 +182,12 @@ Pure planning logic is separated from external I/O. `plan` can run entirely from
 
 ### Google Calendar (read-only)
 
-- Uses the google-workspace skill's `scripts/google_api.py` CLI (replaced `gog` on 2026-09-05).
-- Google Calendar is **read-only** for availability. No calendar create/update/delete is performed.
-- Expected calendar: `primary` by default.
+- Uses the calendar’s **secret iCal address** (`GOOGLE_CALENDAR_ICS_URL` or
+  `--calendar-ics-url`). Google Calendar → Settings → Integrate calendar →
+  Secret address in iCal format. No OAuth app, no `gog`, no Hermes skill.
+- Google Calendar is **read-only** for availability. No calendar create/update/delete.
+- `--calendar-file` loads a local JSON fixture; `--no-calendar` skips fetch.
+- Expected label via `--calendar` (default `primary`) is only used as `calendarId` on events.
 
 ## Secret management
 
@@ -360,7 +363,7 @@ Recommended rollout:
 ## Troubleshooting
 
 - `exit 2`: bad CLI/config input
-- `exit 3`: auth failure (Todoist token missing/invalid, google_api calendar auth unavailable)
+- `exit 3`: auth failure (Todoist token missing/invalid, calendar ICS URL rejected)
 - `exit 4`: external API/CLI failure
 - `exit 5`: plan generation or schema failure
 - `exit 6`: apply had partial failures

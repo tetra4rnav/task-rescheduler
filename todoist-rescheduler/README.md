@@ -39,4 +39,9 @@ node todoist-rescheduler/engine/bin/daily-scheduler.js plan \
 Needs `TODOIST_API_TOKEN` for live Todoist. Active policy path:
 `$TASK_RESCHEDULER_POLICY` (copy from `POLICY.template.md`; do not commit the live file).
 
+Live calendar busy/free: set `GOOGLE_CALENDAR_ICS_URL` to the calendar’s
+secret iCal address (Google Calendar → Settings → Integrate calendar), or
+pass `--calendar-ics-url`. Use `--no-calendar` to plan against working hours
+only. No Hermes / `gog` / `google_api.py`.
+
 Details: [`engine/README.md`](engine/README.md). Agent procedure: [`SKILL.md`](SKILL.md).

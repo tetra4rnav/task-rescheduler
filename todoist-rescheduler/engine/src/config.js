@@ -80,6 +80,7 @@ export async function parseCli(argv, { now = new Date() } = {}) {
     syncTodoistDue: false,
     todoistOnly: false,
     noCalendar: false,
+    calendarIcsUrls: [],
     todoistApiBaseUrl: TODOIST_API_BASE_URL,
     registryPath: DEFAULT_REGISTRY_PATH,
     config: DEFAULT_CONFIG,
@@ -151,6 +152,14 @@ export async function parseCli(argv, { now = new Date() } = {}) {
       case '--calendar-file':
         parsed.calendarFile = args[++index];
         break;
+      case '--calendar-ics-url': {
+        const value = args[++index];
+        const urls = value.includes(',')
+          ? value.split(',').map((item) => item.trim()).filter(Boolean)
+          : [value];
+        parsed.calendarIcsUrls = [...(parsed.calendarIcsUrls || []), ...urls];
+        break;
+      }
       case '--plan-file':
         parsed.planFile = args[++index];
         break;
@@ -240,11 +249,12 @@ export async function parseCli(argv, { now = new Date() } = {}) {
   return deepFreeze({
     ...parsed,
     calendars: ensureArray(parsed.calendars),
+    calendarIcsUrls: ensureArray(parsed.calendarIcsUrls),
     config: deepFreeze(parsed.config),
   });
 }
 
 export function helpText() {
-  return `daily-scheduler <command> [options]\n\nCommands:\n  plan               Generate deterministic plan JSON (dry-run)\n  apply              Generate and apply plan\n  verify             Verify current state against deterministic plan\n  migrate-deadlines  Preview date-only due migration; apply requires an approved plan file\n  dump               Dump analyzed tasks info for LLM interpretation\n  run                plan by default; apply with --apply\n\nOptions:\n  --date YYYY-MM-DD\n  --timezone UTC                  # single operational timezone (Matt 2026-09-04 directive)\n  --days 3\n  --account your-email-at-provider.example\n  --calendar primary[,secondary]\n  --working-hours 10:00-24:00     # full-day window; 24:00 == next day 00:00Z\n  --max-daily-minutes 1440        # formal-only (24h/day) — effectively off\n  --min-break-minutes 15\n  --json\n  --verbose\n  --dry-run\n  --apply\n  --sync-todoist-due\n  --todoist-only     Read Calendar for availability, write scheduled times only to Todoist due datetime
-  --no-calendar      Skip Calendar fetch entirely (use for OAuth outages; planner uses working-hours-only windows)\n  --config /path/to/config.json\n  --todoist-file /path/to/tasks.json\n  --calendar-file /path/to/events.json\n  --plan-file /path/to/plan.json\n  --overrides /path/to/overrides.json\n  --approve-deadline-migrations\n  --now RFC3339  # deterministic testing`;
+  return `daily-scheduler <command> [options]\n\nCommands:\n  plan               Generate deterministic plan JSON (dry-run)\n  apply              Generate and apply plan\n  verify             Verify current state against deterministic plan\n  migrate-deadlines  Preview date-only due migration; apply requires an approved plan file\n  dump               Dump analyzed tasks info for LLM interpretation\n  run                plan by default; apply with --apply\n\nOptions:\n  --date YYYY-MM-DD\n  --timezone UTC                  # single operational timezone\n  --days 3\n  --account your-email-at-provider.example\n  --calendar primary[,secondary]  # label only when using ICS URLs\n  --working-hours 10:00-24:00     # full-day window; 24:00 == next day 00:00Z\n  --max-daily-minutes 1440\n  --min-break-minutes 15\n  --json\n  --verbose\n  --dry-run\n  --apply\n  --sync-todoist-due\n  --todoist-only     Read Calendar for availability, write scheduled times only to Todoist due datetime
+  --no-calendar      Skip Calendar fetch (working-hours-only windows)\n  --calendar-ics-url URL   Secret iCal URL (repeatable). Or set GOOGLE_CALENDAR_ICS_URL\n  --config /path/to/config.json\n  --todoist-file /path/to/tasks.json\n  --calendar-file /path/to/events.json\n  --plan-file /path/to/plan.json\n  --overrides /path/to/overrides.json\n  --approve-deadline-migrations\n  --now RFC3339  # deterministic testing`;
 }
