@@ -1,8 +1,11 @@
 # todoist-github-sync
 
-One-way sync from GitHub Issues to Todoist tasks. Lives outside the main
-5-stage `task-rescheduler` pipeline — it has its own config, its own cron
-slot, and its own operational concerns.
+One-way sync from GitHub Issues to Todoist tasks. Independent of the
+rescheduler pipeline: same CLI, any scheduler.
+
+**To run it every 10 minutes** (GitHub Actions, cron, Hermes, or another
+agent), follow the root [README.md](../README.md#github--todoist-sync).
+This file is the behavior and schema reference.
 
 ## What it does
 
@@ -20,8 +23,10 @@ For every project in your config:
 6. Wires up **parent / dependency** links between Todoist tasks so the
    Todoist-side tree mirrors the GitHub-side relationships (see below).
 
-GitHub is authoritative. Todoist-side edits to **duration**, **priority**,
-and other fields not present on the GitHub side are never overwritten.
+GitHub is authoritative for issue identity, title, comments, and
+relationships. Todoist-side edits to **duration**, **priority**, **due**,
+and **deadline** are never overwritten. GitHub Project dates only fill
+empty Todoist fields (see date sync below).
 
 ## Relationship sync (sub-task + blocked-by)
 
@@ -63,10 +68,10 @@ Notes:
   "$schema_version": "1.0",
   "projects": [
     {
-      "name": "RZDC Philippines VH",
-      "github_owner": "tetra4rnav",
-      "github_repos": ["RZDC_Philippines_VH"],
-      "todoist_project": "RZDC Philippines",
+      "name": "Example Project",
+      "github_owner": "your-org",
+      "github_repos": ["your-repo"],
+      "todoist_project": "Inbox",
       "github_project_number": 4,
       "issue_labels_include": [],
       "issue_labels_exclude": []
@@ -80,8 +85,9 @@ Notes:
 - `todoist_project` — exact name of the existing Todoist project.
 - `github_project_number` (optional) — if set, `start date` → `due_date`,
   `target date` → `deadline_date` are pulled from the GitHub Projects board
-  and applied to Todoist tasks unless the existing Todoist task carries the
-  `date-locked` label.
+  and applied only when the matching Todoist field is empty. Existing
+  Todoist due / deadline values are never overwritten. The `date-locked`
+  label additionally blocks filling empty fields.
 - `issue_labels_include` / `issue_labels_exclude` (optional, reserved) —
   label-based filtering, not yet implemented.
 
@@ -113,10 +119,10 @@ python3 todoist-github-sync/migrate_openclaw_registry.py \
     --source /path/to/old/project_registry.json \
     --dry-run
 
-# Write the new config:
+# Write the new config somewhere private (not this repo):
 python3 todoist-github-sync/migrate_openclaw_registry.py \
     --source /path/to/old/project_registry.json \
-    --output /opt/data/configs/github-projects.json
+    --output /path/to/github-projects.json
 ```
 
 The migration is one-shot; the new config is the source of truth from then
@@ -132,7 +138,9 @@ Config path resolves in this order:
 2. `$GITHUB_PROJECTS_CONFIG` environment variable
 
 Both must point to the same schema; if neither is set the script exits
-with a clear error.
+with a clear error. GitHub Actions pastes the JSON into a secret and the
+workflow writes a temp file; cron and agents use a private file path.
+See [`secrets.example`](./secrets.example) and [`cron.example.sh`](./cron.example.sh).
 
 ## Requirements
 
@@ -170,8 +178,8 @@ The dry-run prints a JSON object:
 ```
 
 The `would_call` field is only present in `--dry-run` mode and lists
-every Todoist write the apply step WOULD make. Review it before running
-`--apply`.
+every Todoist write apply would make. Review it before running without
+`--dry-run`.
 
 ## Warnings
 
@@ -184,7 +192,7 @@ The script prints human-readable `WARN:` lines to stderr when:
 - the project number in the config doesn't match a real board
 
 In `--dry-run` mode these warnings are surfaced but the plan still runs
-(so you can inspect what *would* have been written). In `--apply` mode
+(so you can inspect what *would* have been written). Without `--dry-run`
 any warning causes the script to exit `2` before touching Todoist — we
 refuse to write tasks without the dates you intended.
 
@@ -205,13 +213,16 @@ modules by file path.
 
 - This is **one-way** sync: Todoist → GitHub is intentionally unsupported.
   Edits in Todoist that should flow back to GitHub need a separate workflow.
-- Duration and priority on existing Todoist tasks are **preserved**. If you
-  want GitHub to drive them too, add the fields to the sync body — the
-  script already does partial updates, just append the new fields.
+- Duration, priority, due, and deadline on existing Todoist tasks are
+  **preserved**. GitHub Project dates (`start date` → `due_date`,
+  `target date` → `deadline_date`) are written on create, and on update
+  only when that Todoist field is empty. A later GitHub date change does
+  not clobber a date you (or the rescheduler) already set in Todoist.
+  Clear the Todoist field if you want GitHub to fill it again.
 - The `date-locked` label on a Todoist task prevents the script from
-  overwriting its `due_date` and `deadline_date`. Apply it manually when
-  you've manually rescheduled something and want GitHub Projects to leave
-  it alone.
+  writing `due_date` and `deadline_date` even when those fields are empty.
+  Apply it when you have cleared a date on purpose and do not want GitHub
+  Projects to refill it.
 
 ## License
 

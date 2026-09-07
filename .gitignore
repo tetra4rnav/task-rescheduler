@@ -9,3 +9,4 @@ artifacts/
 *.tmp
 __pycache__/
 *.pyc
+github-projects.json

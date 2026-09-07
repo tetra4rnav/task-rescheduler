@@ -1,100 +1,125 @@
 # task-rescheduler
 
-Todoist タスクの空白時間への再配置（再スケジュール）パイプライン。
-決定論的プランナー（スコア・空き時間ベース）と、LLM が配置を判断する
-LLM 駆動方式（`POLICY.md` に方針を記載）の2方式を備える。
-Google Calendar は**読み取り専用**（予定の空き時間を考慮するのみで、書き込みはしない）。
-書き込む先は Todoist の due datetime のみ。
+Two tools that keep GitHub work and Todoist in the same day:
 
-Repository layout (two top-level folders):
+1. **GitHub → Todoist sync** (`todoist-github-sync/`) — one-way copy of Issues (and optional GitHub Projects dates) into Todoist tasks.
+2. **Todoist rescheduler** (`todoist-rescheduler/`) — places those tasks into free time. The planner is deterministic; an optional LLM pass can override low-confidence duration estimates. Google Calendar is **read-only**. The only calendar-adjacent write is Todoist due datetime.
+
+This repository is MIT-licensed. Personal tokens, repo lists, and filled project JSON do **not** belong in git.
+
+## Layout
 
 ```
 task-rescheduler/
-├── todoist-rescheduler/      # Todoist rescheduling pipeline (LLM + deterministic)
-│   ├── rescheduler/          #   orchestrator CLI (run.js, single entry point)
-│   ├── daily-scheduler/      #   planner core (Node.js ESM modules)
-│   ├── POLICY.md             #   LLM reschedule policy (human-edited markdown)
-│   ├── log_append.py         #   Stage-4 audit logger
-│   ├── daily_effort_append.py
-│   ├── yesterday_reflection.py
-│   ├── todoist_today.py
-│   ├── today_dashboard.py
-│   ├── hub_sync.py
-│   └── project_hub_sync_gate.py
-└── todoist-github-sync/      # GitHub Issue → Todoist one-way sync
-    ├── github_todoist_sync.py
-    ├── migrate_openclaw_registry.py
-    ├── schema.example.json
-    └── README.md
+├── .github/workflows/        # Optional GitHub Actions scheduler for sync
+├── todoist-github-sync/      # GitHub Issue → Todoist CLI
+│   ├── github_todoist_sync.py
+│   ├── cron.example.sh       # crontab / Hermes / other agent wrapper
+│   ├── schema.example.json   # mapping JSON template
+│   ├── secrets.example       # env / Actions secret names
+│   └── README.md             # sync behavior and schema
+└── todoist-rescheduler/      # Rescheduling pipeline
+    ├── rescheduler/run.js    # CLI entry point
+    ├── daily-scheduler/      # planner core
+    ├── POLICY.example.md
+    └── TASK_CONTEXT.example.md
 ```
-
-## Repo root (single source of truth)
-
-The repo root is resolved from `~/.hermes/configs/task-rescheduler.json`
-(`repo_root` key) — never hard-coded. External wrappers (cron scripts) and the
-Hermes skill read it from there. If the repo moves, update that one file.
-
-```bash
-# Resolve repo root
-export TASK_RESCHEDULER_DIR=$(python3 -c \
-  'import json,os;print(json.load(open(os.path.expanduser("~/.hermes/configs/task-rescheduler.json")))["repo_root"])')
-```
-
-Env override: `TASK_RESCHEDULER_DIR` wins if it points to an existing dir.
-
-## todoist-rescheduler
-
-The Todoist rescheduling pipeline. Two layers:
-
-- `rescheduler/` — orchestrator CLI (single entry point, run.js).
-- `daily-scheduler/` — planner core (Node.js ESM modules).
-
-The planner is deterministic; an optional LLM pass (via `--model` or
-`llmDuration.enabled`) overrides only the `default`-confidence duration
-estimates (see `daily-scheduler/README.md`).
-
-Python helpers support memory writeback and dashboard rendering:
-`log_append.py` (audit), `daily_effort_append.py`, `yesterday_reflection.py`,
-`todoist_today.py`, `today_dashboard.py`, `hub_sync.py`,
-`project_hub_sync_gate.py`.
-
-### Rescheduler usage (todoist-rescheduler)
-
-```bash
-# Dry-run plan (read-only, JSON to stdout)
-node todoist-rescheduler/rescheduler/run.js --dry-run --timezone UTC
-
-# Apply plan (writes scheduled due datetimes back to Todoist)
-node todoist-rescheduler/rescheduler/run.js --apply --timezone UTC
-
-# Calendar-free mode (Todoist due only)
-node todoist-rescheduler/rescheduler/run.js --apply --no-calendar --timezone UTC
-```
-
-See `todoist-rescheduler/daily-scheduler/README.md` for planner details, exit
-codes, and full option reference.
-
-## todoist-github-sync
-
-A separate, standalone subpackage that pulls GitHub Issues (and optional
-GitHub Projects dates) into Todoist tasks. GitHub is authoritative;
-Todoist-side edits to duration and priority are preserved.
-
-Lives at `todoist-github-sync/`. Configuration is read from
-`--config <path>` or `$GITHUB_PROJECTS_CONFIG`. Includes a one-shot
-migrator for users coming from the old
-`openclaw-mirror/scripts/project_registry.json` format.
-
-See [`todoist-github-sync/README.md`](./todoist-github-sync/README.md)
-for schema, usage, and operational notes.
 
 ## Requirements
 
-- Node.js ≥ 24.
-- A valid `TODOIST_API_TOKEN` in the environment.
-- Read-only Google Calendar access via the google-workspace skill's
-  `google_api.py` (Calendar is consumed only, never written to).
+| Tool | Needs |
+|---|---|
+| Sync | Python ≥ 3.10, [`gh`](https://cli.github.com/) on `PATH`, `TODOIST_API_TOKEN` |
+| Rescheduler | Node.js ≥ 24, `TODOIST_API_TOKEN`. Calendar access only if you do not pass `--no-calendar` |
+
+`gh` must be able to read Issues on every repo you map, and GitHub Projects if you set `github_project_number`. The default Actions `GITHUB_TOKEN` cannot do that — use a PAT. Names and scopes: [`todoist-github-sync/secrets.example`](todoist-github-sync/secrets.example).
+
+## GitHub → Todoist sync
+
+GitHub is authoritative for issue identity, title, comments, and relationships. Todoist-side **duration**, **priority**, **due**, and **deadline** are never overwritten; GitHub Project dates only fill empty Todoist fields.
+
+Full behavior: [`todoist-github-sync/README.md`](todoist-github-sync/README.md).
+
+### 1. Mapping file
+
+Copy [`todoist-github-sync/schema.example.json`](todoist-github-sync/schema.example.json), fill `github_owner`, `github_repos`, `todoist_project`, and optional `github_project_number`. Keep the filled copy **private**.
+
+Config path for the CLI (first match wins): `--config <path>`, then `$GITHUB_PROJECTS_CONFIG`.
+
+### 2. Pick one scheduler
+
+All three call the same CLI. Run `--dry-run` first.
+
+**GitHub Actions** (workflow in this repo, every 10 minutes)
+
+1. Fork or use your own copy of the repo (secrets stay on *your* repo).
+2. Settings → Secrets and variables → Actions, add:
+
+   | Secret | Value |
+   |---|---|
+   | `TODOIST_API_TOKEN` | Todoist REST token |
+   | `GH_PAT` | PAT (`gh` uses this as `GH_TOKEN`) |
+   | `GITHUB_PROJECTS_JSON` | The **JSON body** of your filled mapping, not a file path |
+
+3. Enable Actions if a fork disabled them.
+4. Actions → **GitHub → Todoist sync** → Run workflow with **Plan only** checked. Inspect `skipped_dates` and `WARN:` lines.
+5. Run again with Plan only unchecked. The `*/10 * * * *` schedule then applies on its own.
+
+Scheduled workflows can drift by several minutes. On a public repo they pause after about 60 days with no repository activity. Fork pull requests do not receive secrets.
+
+**cron or systemd**
+
+```bash
+export TODOIST_API_TOKEN=…          # from Todoist
+export GITHUB_PROJECTS_CONFIG=/path/to/github-projects.json
+# optional if `gh` is not already logged in:
+export GH_TOKEN=…
+
+# once:
+bash todoist-github-sync/cron.example.sh --dry-run
+
+# crontab, every 10 minutes:
+# */10 * * * * TODOIST_API_TOKEN=… GITHUB_PROJECTS_CONFIG=/path/to/github-projects.json /path/to/todoist-github-sync/cron.example.sh
+```
+
+**Hermes or other AI-agent crons**
+
+Same contract as cron: do not invent config. Set `TODOIST_API_TOKEN` and `GITHUB_PROJECTS_CONFIG` (path to the private JSON) on the host, ensure `gh` is authenticated or `GH_TOKEN` is set, working directory anywhere, schedule `*/10 * * * *`, command:
+
+```bash
+python3 /path/to/task-rescheduler/todoist-github-sync/github_todoist_sync.py \
+  --config "$GITHUB_PROJECTS_CONFIG"
+```
+
+or `todoist-github-sync/cron.example.sh` (pass `--dry-run` until you trust the plan). `$HERMES_HOME/configs/github-projects.json` is one valid path among others.
+
+### 3. Local CLI
+
+```bash
+python3 todoist-github-sync/github_todoist_sync.py \
+  --config /path/to/github-projects.json \
+  --dry-run
+
+python3 todoist-github-sync/github_todoist_sync.py \
+  --config /path/to/github-projects.json
+```
+
+## Todoist rescheduler
+
+```bash
+node todoist-rescheduler/rescheduler/run.js --dry-run --timezone UTC
+node todoist-rescheduler/rescheduler/run.js --apply --timezone UTC
+node todoist-rescheduler/rescheduler/run.js --apply --no-calendar --timezone UTC
+```
+
+Planner details, exit codes, and flags: [`todoist-rescheduler/daily-scheduler/README.md`](todoist-rescheduler/daily-scheduler/README.md). Policy and per-task hints are private; start from `POLICY.example.md` and `TASK_CONTEXT.example.md`.
+
+## What this repo does not contain
+
+- Filled `github-projects.json` (gitignored filename)
+- API tokens
+- Live `POLICY.md` / `TASK_CONTEXT.md`
 
 ## License
 
-MIT — see `LICENSE`.
+MIT — see [`LICENSE`](LICENSE).

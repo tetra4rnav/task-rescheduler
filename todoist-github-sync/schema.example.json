@@ -1,6 +1,6 @@
 {
   "$schema_version": "1.0",
-  "$comment": "Example config for todoist-github-sync. Copy to $HERMES_HOME/configs/github-projects.json and edit.",
+  "$comment": "Copy this file, fill it, and keep the copy private. GitHub Actions: paste the JSON body into the GITHUB_PROJECTS_JSON secret. cron / Hermes / other agents: point GITHUB_PROJECTS_CONFIG at the file path.",
   "projects": [
     {
       "name": "Example Project",
