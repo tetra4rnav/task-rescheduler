@@ -22,7 +22,7 @@ task-rescheduler/
 └── todoist-rescheduler/      # Rescheduling pipeline
     ├── rescheduler/run.js    # CLI entry point
     ├── daily-scheduler/      # planner core
-    ├── POLICY.example.md
+    ├── POLICY.template.md
     └── TASK_CONTEXT.example.md
 ```
 
@@ -176,7 +176,31 @@ node todoist-rescheduler/rescheduler/run.js --apply --timezone UTC
 node todoist-rescheduler/rescheduler/run.js --apply --no-calendar --timezone UTC
 ```
 
-Planner details, exit codes, and flags: [`todoist-rescheduler/daily-scheduler/README.md`](todoist-rescheduler/daily-scheduler/README.md). Policy and per-task hints are private; start from `POLICY.example.md` and `TASK_CONTEXT.example.md`.
+Planner details, exit codes, and flags: [`todoist-rescheduler/daily-scheduler/README.md`](todoist-rescheduler/daily-scheduler/README.md). Policy and per-task hints are private; start from `POLICY.template.md` and `TASK_CONTEXT.example.md`.
+
+## Policy storage (template vs active copy)
+
+This repo publishes `todoist-rescheduler/POLICY.template.md` as the
+canonical scaffold. **Do not use the template directly with a real
+agent**.
+
+Your **active** `POLICY.md` must be:
+
+1. Copied from `POLICY.template.md` to a location owned by your agent
+   harness or operator profile.
+2. Edited to contain your labels, working hours, priority bands, and
+   any custom `## <rule-name>` sections.
+3. **Excluded from version control** in your working copy.
+
+The reference implementation in `todoist-rescheduler/` reads the
+active `POLICY.md` from an environment variable injected by your
+harness (see that module's README for the canonical env-var names).
+Similarly `TASK_CONTEXT.example.md` is a scaffold for a private
+`TASK_CONTEXT.md`.
+
+Storing the active `POLICY.md` in a public repo would leak
+operator-specific data (project names, working hours, custom rule
+sections, label choices). Keep it private.
 
 ## What this repo does not contain
 
