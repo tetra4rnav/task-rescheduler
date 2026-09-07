@@ -65,14 +65,14 @@ Notes:
 
 ```json
 {
-  "$schema_version": "1.0",
+  "$schema_version": "1.1",
   "projects": [
     {
       "name": "Example Project",
-      "github_owner": "your-org",
-      "github_repos": ["your-repo"],
-      "todoist_project": "Inbox",
+      "github_repos": ["your-org/your-repo"],
+      "todoist_project_id": "1234567890",
       "github_project_number": 4,
+      "github_project_owner": null,
       "issue_labels_include": [],
       "issue_labels_exclude": []
     }
@@ -80,14 +80,15 @@ Notes:
 }
 ```
 
-- `github_owner` + `github_repos` — which repos feed this Todoist project.
-  Multiple repos can map to the same Todoist project.
-- `todoist_project` — exact name of the existing Todoist project.
+- `github_repos` — `owner/repo` strings. Multiple repos can map to the same Todoist project.
+- `todoist_project_id` — Todoist project **id** (stable). List ids with `GET https://api.todoist.com/api/v1/projects`. Names are not used; they change and collide.
 - `github_project_number` (optional) — if set, `start date` → `due_date`,
   `target date` → `deadline_date` are pulled from the GitHub Projects board
   and applied only when the matching Todoist field is empty. Existing
   Todoist due / deadline values are never overwritten. The `date-locked`
   label additionally blocks filling empty fields.
+- `github_project_owner` (optional) — `--owner` for `gh project item-list`.
+  Defaults to the unique owner in `github_repos`. Required when those owners differ.
 - `issue_labels_include` / `issue_labels_exclude` (optional, reserved) —
   label-based filtering, not yet implemented.
 

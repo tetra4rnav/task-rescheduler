@@ -42,7 +42,7 @@ Full behavior: [`todoist-github-sync/README.md`](todoist-github-sync/README.md).
 
 ### 1. Mapping file
 
-Copy [`todoist-github-sync/schema.example.json`](todoist-github-sync/schema.example.json), fill `github_owner`, `github_repos`, `todoist_project`, and optional `github_project_number`. Keep the filled copy **private**.
+Copy [`todoist-github-sync/schema.example.json`](todoist-github-sync/schema.example.json). `github_repos` are `owner/repo`. `todoist_project_id` is the Todoist project **id** (not the display name — names change). Optional `github_project_number` plus `github_project_owner` if the Projects board owner is not the repo owner. Keep the filled copy **private**.
 
 Config path for the CLI (first match wins): `--config <path>`, then `$GITHUB_PROJECTS_CONFIG`.
 

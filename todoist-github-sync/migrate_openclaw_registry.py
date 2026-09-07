@@ -16,13 +16,12 @@ Old schema (openclaw-mirror/scripts/project_registry.json):
 
 New schema (todoist-github-sync/github-projects.json):
     {
-      "$schema_version": "1.0",
+      "$schema_version": "1.1",
       "projects": [
         {
           "name": "...",
-          "github_owner": "...",
-          "github_repos": ["..."],
-          "todoist_project": "...",
+          "github_repos": ["owner/repo"],
+          "todoist_project_id": "...",
           "github_project_number": N | null,
           "issue_labels_include": [],
           "issue_labels_exclude": [],
@@ -40,7 +39,7 @@ Usage:
 
 Skip rules:
     - entry.github == [] or missing      → skipped
-    - entry.todoist_project missing/null → skipped
+    - entry.todoist_project_id and todoist_project both missing/null → skipped
     - entry.github entries without owner/repo → skipped with warning
 
 Error rules (fail loud):
@@ -54,7 +53,7 @@ import json
 import sys
 from pathlib import Path
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 
 def _load_legacy(path: Path) -> list[dict]:
@@ -86,10 +85,10 @@ def _migrate_entry(entry: dict) -> tuple[dict | None, list[str]]:
         warnings.append(f"skip {entry_key}: github is empty")
         return None, warnings
 
-    # Skip rule 2: no todoist project.
-    todoist_project = entry.get("todoist_project")
-    if not todoist_project:
-        warnings.append(f"skip {entry_key}: todoist_project is null/empty")
+    # Skip rule 2: no Todoist project id (legacy used the display name).
+    todoist_project_id = entry.get("todoist_project_id") or entry.get("todoist_project")
+    if not todoist_project_id:
+        warnings.append(f"skip {entry_key}: todoist_project_id is null/empty")
         return None, warnings
 
     # Validate every repo entry has owner and repo.
@@ -114,7 +113,6 @@ def _migrate_entry(entry: dict) -> tuple[dict | None, list[str]]:
             f"{entry_key}: multiple distinct github owners across repos "
             f"({sorted(distinct_owners)}); split into separate entries first"
         )
-    github_owner = next(iter(distinct_owners))
 
     # Detect distinct github_project numbers — fail loud.
     project_numbers = set()
@@ -134,9 +132,8 @@ def _migrate_entry(entry: dict) -> tuple[dict | None, list[str]]:
 
     new_entry = {
         "name": name,
-        "github_owner": github_owner,
-        "github_repos": [r["repo"] for r in valid_repos],
-        "todoist_project": todoist_project,
+        "github_repos": [f"{r['owner']}/{r['repo']}" for r in valid_repos],
+        "todoist_project_id": str(todoist_project_id),
         "github_project_number": github_project_number,
         "issue_labels_include": [],
         "issue_labels_exclude": [],

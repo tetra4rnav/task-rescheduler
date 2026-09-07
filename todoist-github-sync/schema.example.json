@@ -1,13 +1,13 @@
 {
-  "$schema_version": "1.0",
-  "$comment": "Copy this file, fill it, and keep the copy private. GitHub Actions: paste the JSON body into repository variable PROJECTS_JSON (names cannot start with GITHUB_). cron / Hermes / other agents: point GITHUB_PROJECTS_CONFIG at the file path.",
+  "$schema_version": "1.1",
+  "$comment": "Copy this file, fill it, and keep the copy private. github_repos must be owner/repo. todoist_project_id is the Todoist project id (Settings or GET /projects), not the name. GitHub Actions: paste the JSON body into repository variable PROJECTS_JSON. cron / agents: point GITHUB_PROJECTS_CONFIG at the file path.",
   "projects": [
     {
       "name": "Example Project",
-      "github_owner": "your-org",
-      "github_repos": ["your-repo"],
-      "todoist_project": "Inbox",
+      "github_repos": ["your-org/your-repo"],
+      "todoist_project_id": "1234567890",
       "github_project_number": null,
+      "github_project_owner": null,
       "issue_labels_include": [],
       "issue_labels_exclude": []
     }

@@ -9,6 +9,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
@@ -24,6 +25,7 @@ _migrate_entry = _migrate_mod._migrate_entry
 _load_legacy = _migrate_mod._load_legacy
 SCHEMA_VERSION = _migrate_mod.SCHEMA_VERSION
 migrate_main = _migrate_mod.main
+TMP = Path(tempfile.gettempdir())
 
 
 class MigrateEntryTests(unittest.TestCase):
@@ -42,9 +44,8 @@ class MigrateEntryTests(unittest.TestCase):
         self.assertEqual(warnings, [])
         self.assertEqual(out, {
             "name": "Project",
-            "github_owner": "me",
-            "github_repos": ["r"],
-            "todoist_project": "TodoistName",
+            "github_repos": ["me/r"],
+            "todoist_project_id": "TodoistName",
             "github_project_number": 4,
             "issue_labels_include": [],
             "issue_labels_exclude": [],
@@ -62,7 +63,7 @@ class MigrateEntryTests(unittest.TestCase):
         }
         out, warnings = _migrate_entry(entry)
         self.assertEqual(warnings, [])
-        self.assertEqual(out["github_repos"], ["diaphana-corporate", "dagpedia-meta"])
+        self.assertEqual(out["github_repos"], ["diaphana-io/diaphana-corporate", "diaphana-io/dagpedia-meta"])
         self.assertEqual(out["github_project_number"], None)
 
     def test_skip_empty_github(self):
@@ -81,7 +82,7 @@ class MigrateEntryTests(unittest.TestCase):
         }
         out, warnings = _migrate_entry(entry)
         self.assertIsNone(out)
-        self.assertIn("todoist_project is null/empty", warnings[0])
+        self.assertIn("todoist_project_id is null/empty", warnings[0])
 
     def test_skip_all_repos_invalid(self):
         entry = {
@@ -164,7 +165,7 @@ class MigrateAggregateTests(unittest.TestCase):
 class LoadLegacyTests(unittest.TestCase):
 
     def test_loads_list(self):
-        p = Path("/tmp/_test_legacy.json")
+        p = TMP / "_test_legacy.json"
         p.write_text(json.dumps([{"key": "x"}]))
         try:
             data = _load_legacy(p)
@@ -174,10 +175,10 @@ class LoadLegacyTests(unittest.TestCase):
 
     def test_missing_file_raises(self):
         with self.assertRaises(FileNotFoundError):
-            _load_legacy(Path("/tmp/_does_not_exist_legacy.json"))
+            _load_legacy(TMP / "_does_not_exist_legacy.json")
 
     def test_bad_json_raises(self):
-        p = Path("/tmp/_test_legacy_bad.json")
+        p = TMP / "_test_legacy_bad.json"
         p.write_text("{not valid json")
         try:
             with self.assertRaises(ValueError):
@@ -186,7 +187,7 @@ class LoadLegacyTests(unittest.TestCase):
             p.unlink(missing_ok=True)
 
     def test_non_list_raises(self):
-        p = Path("/tmp/_test_legacy_obj.json")
+        p = TMP / "_test_legacy_obj.json"
         p.write_text(json.dumps({"projects": []}))
         try:
             with self.assertRaises(ValueError):
@@ -197,8 +198,8 @@ class LoadLegacyTests(unittest.TestCase):
 
 class RenderTests(unittest.TestCase):
     def test_render_wraps_with_schema_version(self):
-        out = render([{"name": "X", "github_owner": "me", "github_repos": ["r"],
-                       "todoist_project": "tx", "github_project_number": None,
+        out = render([{"name": "X", "github_repos": ["me/r"],
+                       "todoist_project_id": "tx", "github_project_number": None,
                        "issue_labels_include": [], "issue_labels_exclude": []}])
         self.assertEqual(out["$schema_version"], SCHEMA_VERSION)
         self.assertEqual(len(out["projects"]), 1)
@@ -212,7 +213,7 @@ class RenderTests(unittest.TestCase):
 class CliTests(unittest.TestCase):
 
     def _write_legacy(self, data) -> Path:
-        p = Path("/tmp/_test_migrate_src.json")
+        p = TMP / "_test_migrate_src.json"
         p.write_text(json.dumps(data))
         return p
 
@@ -229,7 +230,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             written = json.loads(buf_out.getvalue())
             self.assertEqual(written["$schema_version"], SCHEMA_VERSION)
-            self.assertEqual(written["projects"][0]["github_repos"], ["r"])
+            self.assertEqual(written["projects"][0]["github_repos"], ["me/r"])
             self.assertIn("migrated 1 of 1", buf_err.getvalue())
         finally:
             src.unlink(missing_ok=True)
@@ -240,7 +241,7 @@ class CliTests(unittest.TestCase):
              "github": [{"owner": "me", "repo": "r"}],
              "todoist_project": "TP"},
         ])
-        out = Path("/tmp/_test_migrate_out.json")
+        out = TMP / "_test_migrate_out.json"
         try:
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 rc = migrate_main(["--source", str(src), "--output", str(out)])
@@ -254,7 +255,7 @@ class CliTests(unittest.TestCase):
 
     def test_apply_requires_output_flag(self):
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            rc = migrate_main(["--source", "/tmp/_nope.json"])
+            rc = migrate_main(["--source", str(TMP / "_nope.json")])
         self.assertEqual(rc, 2)
 
     def test_apply_refuses_on_errors(self):
@@ -266,7 +267,7 @@ class CliTests(unittest.TestCase):
              ],
              "todoist_project": "TD"},
         ])
-        out = Path("/tmp/_test_migrate_out_err.json")
+        out = TMP / "_test_migrate_out_err.json"
         try:
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 rc = migrate_main(["--source", str(src), "--output", str(out)])
