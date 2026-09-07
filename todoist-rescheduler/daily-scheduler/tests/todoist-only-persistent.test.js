@@ -20,9 +20,9 @@ test('34. Todoist-only plans persist scheduled slots as busy intervals for subse
       content: 'Already placed task',
       duration: { amount: 60, unit: 'minute' },
       due: { datetime: '2026-03-08T13:00:00Z', is_recurring: false },
-      labels: ['task-rescheduler-assigned', 'task-rescheduler-planner-v1-1-0'],
+      labels: [],
       priority: 4,
-    }, { excludedLabels: [], assignmentMarkerLabel: 'task-rescheduler-assigned', plannerVersionLabelPrefix: 'task-rescheduler-planner-v' }),
+    }, { excludedLabels: [] }),
     normalizeTodoistTask({
       id: 'new-task',
       content: 'New task to place with duration',
@@ -30,7 +30,7 @@ test('34. Todoist-only plans persist scheduled slots as busy intervals for subse
       labels: [],
       due: null,
       priority: 4,
-    }, { excludedLabels: [], assignmentMarkerLabel: 'task-rescheduler-assigned', plannerVersionLabelPrefix: 'task-rescheduler-planner-v' }),
+    }, { excludedLabels: [] }),
   ];
 
   const plan = await buildPlan({

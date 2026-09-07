@@ -1,11 +1,11 @@
+import { todoistDurationWriteFields } from './duration.js';
 import { ApplyPartialError, StateDriftError, VerifyError } from './errors.js';
 import { formatRfc3339InTimeZone } from './time.js';
+import { pickDefined } from './util.js';
 import { verifyPlan } from './verify.js';
 
-// NOTE: Calendar WRITE (create/update/delete) was intentionally removed
-// (Matt 2026-09-05: "google calendar は書き込み機能を削除して読み込みのみにする").
-// This pipeline only ever writes Todoist due timestamps; Google Calendar is
-// read-only for availability.
+// Calendar is read-only. Writes are Todoist due_datetime and, when empty and
+// not fixed, duration. Labels are never written.
 
 async function applyTodoistDueOperations(plan, { todoistClient, options, taskLookup, logger }) {
   if (!options.syncTodoistDue && !options.todoistOnly) return;
@@ -17,10 +17,10 @@ async function applyTodoistDueOperations(plan, { todoistClient, options, taskLoo
       continue;
     }
     try {
-      await todoistClient.updateTaskDue(operation.task_id, {
+      await todoistClient.updateTaskDue(operation.task_id, pickDefined({
         due_datetime: operation.desired_due,
-        labels: operation.desired_labels,
-      });
+        ...todoistDurationWriteFields(operation.desired_duration_minutes),
+      }));
       operation.status = 'applied';
       logger?.info?.('todoist due updated', { taskId: operation.task_id });
     } catch (error) {
@@ -63,8 +63,7 @@ export async function applyPlan(approvedPlan, {
   let workingPlan = mutablePlan;
 
   // NOTE: Calendar WRITE is removed. No calendar_create/update operations are
-  // ever applied — only Todoist due timestamps are written. Calendar events are
-  // read-only input for availability.
+  // ever applied. Calendar events are read-only input for availability.
 
   const stateBeforeTodoist = await reloadState();
   const taskLookup = new Map(stateBeforeTodoist.tasks.map((task) => [task.id, task]));

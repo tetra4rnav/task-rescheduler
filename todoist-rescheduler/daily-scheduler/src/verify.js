@@ -50,10 +50,9 @@ export function verifyPlan(plan, { calendarEvents = [], tasks = [], verifyCalend
         operation.status = 'failed';
         continue;
       }
-      const actualLabels = [...task.labels].sort();
-      const desiredLabels = [...(operation.desired_labels ?? [])].sort();
-      if (JSON.stringify(actualLabels) !== JSON.stringify(desiredLabels)) {
-        mismatches.push({ type: 'todoist', task_id: operation.task_id, reason: 'LABEL_MISMATCH' });
+      if (operation.desired_duration_minutes != null
+        && Number(task.duration) !== Number(operation.desired_duration_minutes)) {
+        mismatches.push({ type: 'todoist', task_id: operation.task_id, reason: 'DURATION_MISMATCH' });
         operation.status = 'failed';
         continue;
       }

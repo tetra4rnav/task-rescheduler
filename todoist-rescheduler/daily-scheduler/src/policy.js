@@ -1,13 +1,10 @@
 // POLICY.md loader — the single source of truth for reschedule policy.
 //
-// Reads the human/machine-readable policy file at repo/todoist-rescheduler/
-// POLICY.md and parses the YAML front-matter `labels:` block. That block is
-// the authoritative definition for label rules (exclude-from-reschedule,
-// assignment marker, planner version prefix, fixed-duration). The rest of the
-// markdown is human/LLM narrative.
-//
-// Why: `no-auto-schedule` etc. used to be hard-coded in constants.js and
-// llm_duration.js. They now live in POLICY.md (Matt 2026-09-05).
+// Reads the human/machine-readable policy file and parses the YAML
+// front-matter `labels:` block. That block is the authoritative definition
+// for exclude-from-reschedule and fixed-duration. The rest of the markdown
+// is human/LLM narrative. Legacy assignment_marker / planner_version_prefix
+// keys are ignored if present.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -101,8 +98,6 @@ export async function loadLabels({ policyPath } = {}) {
     // POLICY.md missing → built-in defaults so the pipeline never breaks.
     return {
       exclude_from_reschedule: ['no-auto-schedule'],
-      assignment_marker: 'task-rescheduler-assigned',
-      planner_version_prefix: 'task-rescheduler-planner-v',
       fixed_duration: 'fixed-duration',
     };
   }
@@ -113,8 +108,6 @@ export async function loadLabelValues({ policyPath } = {}) {
   const labels = await loadLabels({ policyPath });
   return {
     excludeFromReschedule: normalizeLabelList(labels.exclude_from_reschedule),
-    assignmentMarker: firstString(labels.assignment_marker),
-    plannerVersionPrefix: firstString(labels.planner_version_prefix),
     fixedDuration: firstString(labels.fixed_duration),
   };
 }

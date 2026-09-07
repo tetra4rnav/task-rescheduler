@@ -25,8 +25,6 @@ export function normalizeTodoistTask(rawTask, {
   excludedLabels = [],
   requireAutoScheduleLabel = false,
   autoScheduleLabel = 'auto-schedule',
-  assignmentMarkerLabel = 'task-rescheduler-assigned',
-  plannerVersionLabelPrefix = 'task-rescheduler-planner-v',
 } = {}) {
   const projectId = rawTask.project_id == null ? null : String(rawTask.project_id);
   const labels = Array.isArray(rawTask.labels) ? rawTask.labels.map(String) : [];
@@ -41,11 +39,6 @@ export function normalizeTodoistTask(rawTask, {
   const completed = Boolean(rawTask.is_completed ?? rawTask.completed ?? false);
   const cancelled = Boolean(rawTask.is_deleted ?? rawTask.cancelled ?? false);
   const autoSchedule = labels.includes(autoScheduleLabel);
-  const assignmentSource = dueDateTime
-    ? (labels.includes(assignmentMarkerLabel) ? 'task-rescheduler' : 'manual')
-    : null;
-  const plannerVersionLabel = labels.find((label) => label.startsWith(plannerVersionLabelPrefix));
-  const plannerVersion = plannerVersionLabel ? plannerVersionLabel.slice(plannerVersionLabelPrefix.length).replaceAll('-', '.') : null;
   const deadlineAt = rawTask.deadline?.date ?? null;
   const excluded =
     completed ||
@@ -73,8 +66,8 @@ export function normalizeTodoistTask(rawTask, {
     },
     deadline_at: deadlineAt,
     scheduled_start: dueDateTime,
-    assignment_source: assignmentSource,
-    planner_version: plannerVersion,
+    assignment_source: null,
+    planner_version: null,
     auto_schedule: autoSchedule,
     duration: normalizeDuration(rawTask.duration),
     url: rawTask.url ?? null,
@@ -91,10 +84,7 @@ export function classifyTaskTarget(task, { now, calendarTimezone, todoistTimezon
   if (task.excluded) return { include: false, reason: 'EXCLUDED' };
   if (task.due.is_recurring) return { include: true, reason: 'RECURRING' };
   if (task.due.datetime) {
-    if (task.assignment_source === 'manual') {
-      return { include: true, reason: 'MANUAL_ASSIGNMENT' };
-    }
-    return { include: true, reason: 'TETRA_ASSIGNMENT' };
+    return { include: true, reason: 'HAS_DATETIME_DUE' };
   }
   if (task.due.date) {
     return { include: true, reason: 'DATE_ONLY_DUE_REQUIRES_MIGRATION' };

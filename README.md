@@ -3,7 +3,7 @@
 Two tools that keep GitHub work and Todoist in the same day:
 
 1. **GitHub → Todoist sync** (`todoist-github-sync/`) — one-way copy of Issues (and optional GitHub Projects dates) into Todoist tasks.
-2. **Todoist rescheduler** (`todoist-rescheduler/`) — places those tasks into free time. The planner is deterministic; an optional LLM pass can override low-confidence duration estimates. Google Calendar is **read-only**. The only calendar-adjacent write is Todoist due datetime.
+2. **Todoist rescheduler** (`todoist-rescheduler/`) — places those tasks into free time. The planner is deterministic; an optional LLM pass can override low-confidence duration estimates. Google Calendar is **read-only**. Apply writes Todoist due datetime, and duration only when the task has none and is not marked fixed.
 
 This repository is MIT-licensed. Personal tokens, repo lists, and filled project JSON do **not** belong in git.
 
@@ -12,6 +12,7 @@ This repository is MIT-licensed. Personal tokens, repo lists, and filled project
 ```
 task-rescheduler/
 ├── AGENTS.md                 # How agents add a project / must not invent config
+├── SKILL.md                  # Policy-driven scheduling skill (generic)
 ├── .github/workflows/        # Optional GitHub Actions scheduler for sync
 ├── todoist-github-sync/      # GitHub Issue → Todoist CLI
 │   ├── github_todoist_sync.py
@@ -176,7 +177,7 @@ node todoist-rescheduler/rescheduler/run.js --apply --timezone UTC
 node todoist-rescheduler/rescheduler/run.js --apply --no-calendar --timezone UTC
 ```
 
-Planner details, exit codes, and flags: [`todoist-rescheduler/daily-scheduler/README.md`](todoist-rescheduler/daily-scheduler/README.md). Policy and per-task hints are private; start from `POLICY.template.md` and `TASK_CONTEXT.example.md`.
+Planner details, exit codes, and flags: [`todoist-rescheduler/daily-scheduler/README.md`](todoist-rescheduler/daily-scheduler/README.md). Policy and per-task hints are private; start from `POLICY.template.md` and `TASK_CONTEXT.example.md`. Active policy path: `$TASK_RESCHEDULER_POLICY`.
 
 ## Policy storage (template vs active copy)
 
@@ -193,8 +194,10 @@ Your **active** `POLICY.md` must be:
 3. **Excluded from version control** in your working copy.
 
 The reference implementation in `todoist-rescheduler/` reads the
-active `POLICY.md` from an environment variable injected by your
-harness (see that module's README for the canonical env-var names).
+active `POLICY.md` from `$TASK_RESCHEDULER_POLICY` (see
+[`todoist-rescheduler/daily-scheduler/src/policy.js`](todoist-rescheduler/daily-scheduler/src/policy.js)).
+If unset, it looks for `todoist-rescheduler/POLICY.md` next to the
+module (that live file is not in git).
 Similarly `TASK_CONTEXT.example.md` is a scaffold for a private
 `TASK_CONTEXT.md`.
 

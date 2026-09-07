@@ -17,8 +17,7 @@ export const DEFAULT_MAX_DAILY_MINUTES = 1440;
 export const DEFAULT_MIN_BREAK_MINUTES = 15;
 export const DEFAULT_PREP_MINUTES = 15;
 export const DEFAULT_AUTO_SCHEDULE_LABEL = 'auto-schedule';
-export const DEFAULT_ASSIGNMENT_MARKER_LABEL = 'task-rescheduler-assigned';
-export const DEFAULT_PLANNER_VERSION_LABEL_PREFIX = 'task-rescheduler-planner-v';
+export const DEFAULT_FIXED_DURATION_LABEL = 'fixed-duration';
 export const DEFAULT_PAGE_SIZE = 200;
 export const DEFAULT_MAX_RETRIES = 3;
 export const DEFAULT_MAX_RETRY_AFTER_MS = 30_000;
@@ -41,8 +40,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   excludedLabels: ['no-auto-schedule'],
   requireAutoScheduleLabel: false,
   autoScheduleLabel: DEFAULT_AUTO_SCHEDULE_LABEL,
-  assignmentMarkerLabel: DEFAULT_ASSIGNMENT_MARKER_LABEL,
-  plannerVersionLabelPrefix: DEFAULT_PLANNER_VERSION_LABEL_PREFIX,
+  fixedDurationLabel: DEFAULT_FIXED_DURATION_LABEL,
   recurringPolicy: 'defer',
   lunchHours: DEFAULT_LUNCH_HOURS,
   prepMinutes: DEFAULT_PREP_MINUTES,

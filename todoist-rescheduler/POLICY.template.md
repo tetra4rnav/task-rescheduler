@@ -7,9 +7,7 @@
 labels:
   exclude_from_reschedule:
     - no-auto-schedule        # suggested convention; tasks with this label are NEVER rescheduled
-  assignment_marker: agent-assigned
-  planner_version_prefix: agent-planner-v
-  fixed_duration: fixed-duration
+  fixed_duration: fixed-duration  # duration is operator-owned; the engine must not write it back
 ---
 
 # Reschedule Policy (template)
@@ -46,6 +44,15 @@ Human-edited policy consumed by the placement engine on every run.
    `labels.exclude_from_reschedule` (default: `no-auto-schedule`) are
    NEVER rescheduled. The label name is conventional and editable in
    the front-matter.
+6. **Fixed duration**: tasks carrying `labels.fixed_duration`
+   (default: `fixed-duration`) keep their Todoist duration. The engine
+   may estimate a slot length in memory but MUST NOT write duration
+   back. Rename the label in this front-matter if you use a different
+   Todoist label.
+7. **No authorship stamps**: leftover `task-rescheduler-assigned` /
+   planner-version labels (if any) are ignored. They do not mean the
+   current due was written by the engine. Delete them in Todoist if
+   you want a clean label list.
 
 ## Working-hours schedule (placement timezone, weekly)
 
@@ -71,9 +78,10 @@ lives in the engine's configuration, not in this policy.
 
 ## Custom rule labels
 
-Add one `## <rule-name>` section per custom rule. The placement engine
-reads every section under this heading before placement (declarative
-only — **no code change required** to extend the LLM-driven mode).
+Add one `## <rule-name>` section per custom rule. The **LLM-driven**
+mode reads every section under this heading before placement
+(declarative only — **no code change required** for that mode). The
+deterministic engine reads only the YAML `labels:` block.
 
 ### Template
 
