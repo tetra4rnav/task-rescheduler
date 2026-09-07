@@ -5,6 +5,9 @@ rescheduler pipeline: same CLI, any scheduler.
 
 **To run it every 10 minutes** (GitHub Actions, cron, Hermes, or another
 agent), follow the root [README.md](../README.md#github--todoist-sync).
+**To add a GitHub Project / Todoist project pair**, follow
+[Add a project (humans and agents)](../README.md#add-a-project-humans-and-agents).
+Do not invent `todoist_project_id` or `owner/repo`; do not commit the filled JSON.
 This file is the behavior and schema reference.
 
 ## What it does

@@ -11,6 +11,7 @@ This repository is MIT-licensed. Personal tokens, repo lists, and filled project
 
 ```
 task-rescheduler/
+├── AGENTS.md                 # How agents add a project / must not invent config
 ├── .github/workflows/        # Optional GitHub Actions scheduler for sync
 ├── todoist-github-sync/      # GitHub Issue → Todoist CLI
 │   ├── github_todoist_sync.py
@@ -45,6 +46,60 @@ Full behavior: [`todoist-github-sync/README.md`](todoist-github-sync/README.md).
 Copy [`todoist-github-sync/schema.example.json`](todoist-github-sync/schema.example.json). `github_repos` are `owner/repo`. `todoist_project_id` is the Todoist project **id** (not the display name — names change). Optional `github_project_number` plus `github_project_owner` if the Projects board owner is not the repo owner. Keep the filled copy **private**.
 
 Config path for the CLI (first match wins): `--config <path>`, then `$GITHUB_PROJECTS_CONFIG`.
+
+### Add a project (humans and agents)
+
+Do **not** invent ids, repo names, or Todoist project names. Do **not** commit the filled JSON. Append one object to `projects` in the live mapping (`PROJECTS_JSON` variable, or the private file `$GITHUB_PROJECTS_CONFIG`), then dry-run.
+
+**Inputs you must have**
+
+- GitHub Project URL, e.g. `https://github.com/users/OWNER/projects/N` or `https://github.com/orgs/ORG/projects/N`
+- Todoist project URL, e.g. `https://app.todoist.com/app/project/some-slug-6gF73vWPcvWpjjj2`
+- `gh` authenticated (or `GH_TOKEN` / `GH_PAT`) with access to that board and its repos
+
+**Extract fields**
+
+1. `github_project_number` = the integer `N` at the end of the Project URL.
+2. `github_project_owner` = `OWNER` or `ORG` from the URL. Omit it when every repo below shares that owner (the CLI infers it).
+3. Linked repos = unique `content.repository` values from:
+
+   ```bash
+   gh project item-list N --owner OWNER --format json --limit 200
+   ```
+
+   Each value is already `owner/repo`. Put them in `github_repos`. If the board has no issue-linked items, stop and ask the operator — do not guess a repo.
+4. `todoist_project_id` = the **id**, never the display name:
+   - From the Todoist URL: the path segment after the last `-` (`…/project/rzdc-philippines-6gF73vWPcvWpjjj2` → `6gF73vWPcvWpjjj2`), or
+   - From `GET https://api.todoist.com/api/v1/projects` (`Authorization: Bearer $TODOIST_API_TOKEN`): use the `id` field of the matching project.
+5. `name` = a human label only (Project title is fine). The sync engine does not match on it.
+
+**Object to append** (schema `$schema_version` `1.1`):
+
+```json
+{
+  "name": "Example Project",
+  "github_repos": ["your-org/your-repo"],
+  "todoist_project_id": "6gF73vWPcvWpjjj2",
+  "github_project_number": 4,
+  "issue_labels_include": [],
+  "issue_labels_exclude": []
+}
+```
+
+**Where to write**
+
+| How you run sync | Edit |
+|---|---|
+| GitHub Actions | Repository **variable** `PROJECTS_JSON` (Settings → Secrets and variables → Actions → Variables). Not a secret; names cannot start with `GITHUB_`. |
+| cron / Hermes / other agents | The private file at `$GITHUB_PROJECTS_CONFIG`. Filename `github-projects.json` is gitignored. |
+
+**After the edit**
+
+1. Dry-run (`workflow_dispatch` with Plan only, or `cron.example.sh --dry-run`).
+2. Confirm the new `owner/repo` appears and there is no `skip-bad-project` (wrong Todoist id) and no project-date `WARN:` (wrong board number/owner).
+3. Apply. Ensure `GH_PAT` / `GH_TOKEN` can read the new repo’s issues (`repo` or fine-grained Issues: Read) and the board (`read:project`).
+
+If any id or repo is unknown, ask the operator. Do not create a GitHub repo or Todoist project unless they explicitly ask.
 
 ### 2. Pick one scheduler
 
