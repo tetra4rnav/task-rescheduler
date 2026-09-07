@@ -29,9 +29,9 @@ does not change deterministic behavior.
 ## When to use
 
 - **Cron-driven**: the skill MUST invoke `--dry-run` unless the
-  operator opts in to apply. Note the CLIs: `todoist-rescheduler/rescheduler/run.js`
+  operator opts in to apply. Note the CLIs: `run.js`
   applies if neither `--dry-run` nor `--apply` is passed;
-  `daily-scheduler` `run` defaults to dry-run.
+  `engine` `run` defaults to dry-run.
 - **Chat-driven**: trigger a fresh placement, review the breakdown
   in chat, and apply on explicit operator confirmation.
 - **Revert / undo**: restore the pre-apply task-store state from the
@@ -77,7 +77,7 @@ Abstract names (any harness):
 | Audit log sink | `${AUDIT_LOG_PATH}` |
 | Engine install root | `${ENGINE_HOME}` |
 
-Reference implementation (`todoist-rescheduler/`):
+Reference implementation (this package):
 
 | Concern | Env var |
 | --- | --- |
@@ -118,7 +118,7 @@ label.
 ## Procedure — cron-driven (proposal unless opted in)
 
 > The skill must pass `--dry-run` unless the operator has opted in.
-> `rescheduler/run.js` currently **applies** when neither flag is set.
+> `run.js` currently **applies** when neither flag is set.
 
 1. Refresh registry.
 2. Read policy + custom rules.
@@ -140,17 +140,12 @@ To add an LLM-side placement rule:
 The skill never lists individual label names. The authoritative set
 lives in the active `POLICY.md`.
 
-## Reference implementations
+## This product
 
-This repo ships two tools. They do **not** share a configuration
-contract or audit-log format.
-
-| Path | Role |
-| --- | --- |
-| `todoist-rescheduler/` | Placement engine. Writes `due_datetime`, and duration when empty and not fixed. Does not write labels. POLICY + registry + JSONL live here. |
-| `todoist-github-sync/` | One-way GitHub Issue → Todoist sync. Independent CLI and mapping JSON. |
-
-Concrete CLI flags and test fixtures live in each reference's README.
+This skill covers **todoist-rescheduler** only: the placement engine.
+It writes `due_datetime`, and duration when empty and not fixed. It does
+not write labels. POLICY + registry + JSONL live with this package.
+CLI flags and fixtures: [`README.md`](README.md) and [`engine/README.md`](engine/README.md).
 
 ## Pitfalls (engine-level, non-binding)
 
@@ -162,7 +157,7 @@ Concrete CLI flags and test fixtures live in each reference's README.
   fields and silently overwrite each other.
 - **Private placement files.** `POLICY.md` and `tasks-registry.json`
   contain operator-specific data. They MUST NOT be committed in this
-  upstream repo. See the root README for the canonical store
+  upstream repo. See this package README for the canonical store
   convention.
 - **Skill never owns the policy file.** `POLICY.md` is owned by the
   operator's harness. The skill only reads it. If the policy is
