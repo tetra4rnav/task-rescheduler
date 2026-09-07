@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import { applyPlan } from './apply.js';
-import { GoogleCalendarClient, loadCalendarFixture } from './calendar.js';
+import { GoogleCalendarClient, loadCalendarFixture, resolveCalendarIcsUrls } from './calendar.js';
 import { parseCli, helpText } from './config.js';
 import { EXIT_CODES, MANAGED_BY } from './constants.js';
 import { AuthError, InputError, SchedulerError } from './errors.js';
@@ -27,9 +27,10 @@ function summarizeVerificationPlan(plan) {
 
 async function loadState(options, logger) {
   const todoistClient = new TodoistClient({ logger });
-  // Reads Google Calendar availability via google_api.py (formerly `gog`).
-  // Calendar WRITE (create/update/delete) is intentionally removed.
-  const calendarClient = new GoogleCalendarClient({ logger });
+  // Read-only busy/free via secret iCal URL (GOOGLE_CALENDAR_ICS_URL).
+  // No Hermes gog / google_api.py. Calendar WRITE is intentionally removed.
+  const icsUrls = resolveCalendarIcsUrls({ cliUrls: options.calendarIcsUrls });
+  const calendarClient = new GoogleCalendarClient({ logger, icsUrls });
   const todoistRawTasks = options.todoistFile ? await loadTodoistFixture(options.todoistFile) : await todoistClient.listIncompleteTasks();
   const projectIndex = new Map();
   if (!options.todoistFile) {
@@ -61,11 +62,12 @@ async function loadState(options, logger) {
   } else {
     calendarRawEvents = await calendarClient.listEvents({
       calendarIds: options.calendars,
+      icsUrls,
       from,
       to,
       managedBy: undefined,
     });
-    calendarSource = 'live';
+    calendarSource = 'live-ics';
   }
   const calendarEvents = calendarRawEvents.map((event) => normalizeCalendarEvent(event, {
     calendarId: event.calendarId ?? options.calendars[0],
