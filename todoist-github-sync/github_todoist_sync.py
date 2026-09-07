@@ -2,8 +2,10 @@
 """
 github_todoist_sync.py — One-way sync from GitHub Issues to Todoist tasks.
 
-GitHub is authoritative. Todoist-side edits (duration, priority) are never
-overwritten. Mapping key: issue URL in task description + `github-issue` label.
+GitHub is authoritative for issue identity, title, comments, and
+relationships. Todoist-side edits to duration, priority, due, and deadline
+are never overwritten — GitHub Project dates only fill empty Todoist
+fields. Mapping key: issue URL in task description + `github-issue` label.
 
 Config is loaded from --config <path> or the $GITHUB_PROJECTS_CONFIG env var.
 The config file declares which (owner, repos) pairs map to which Todoist
@@ -560,6 +562,55 @@ def build_description(owner: str, repo: str, number: int, title: str, url: str) 
     return f"{owner}/{repo}#{number}\n{url}\n{title}"
 
 
+def _todoist_has_due(task: Optional[dict]) -> bool:
+    """True when the Todoist task already has a due date or datetime."""
+    if not task:
+        return False
+    due = task.get("due") or {}
+    return bool(due.get("datetime") or due.get("date"))
+
+
+def _todoist_has_deadline(task: Optional[dict]) -> bool:
+    """True when the Todoist task already has a deadline date."""
+    if not task:
+        return False
+    deadline = task.get("deadline") or {}
+    return bool(deadline.get("date"))
+
+
+def apply_project_dates(
+    body: dict,
+    *,
+    start_date: Optional[str],
+    target_date: Optional[str],
+    existing: Optional[dict],
+) -> list[str]:
+    """Copy GitHub Project dates onto a Todoist create/update body.
+
+    Existing Todoist due / deadline win: we only fill a field when it is
+    empty. The ``date-locked`` label skips both fields even when empty.
+    CREATE (``existing is None``) writes both fields unconditionally.
+
+    Returns the names of skipped fields (``due``, ``deadline``) for the
+    action log.
+    """
+    date_locked = bool(
+        existing and DATE_LOCK_LABEL in (existing.get("labels") or [])
+    )
+    skipped: list[str] = []
+    if start_date:
+        if date_locked or _todoist_has_due(existing):
+            skipped.append("due")
+        else:
+            body["due_date"] = start_date
+    if target_date:
+        if date_locked or _todoist_has_deadline(existing):
+            skipped.append("deadline")
+        else:
+            body["deadline_date"] = target_date
+    return skipped
+
+
 def _existing_markers(comments: list[dict]) -> set[str]:
     """Collect every `[gh-issue:...]` and `[gh-comment:...]` marker from existing comments."""
     seen: set[str] = set()
@@ -722,28 +773,17 @@ def plan_actions(
             "description": description,
             "labels": [LABEL],
         }
-        date_locked = bool(
-            existing and DATE_LOCK_LABEL in (existing.get("labels") or [])
+        # GitHub Project dates fill empty Todoist fields only. A date-only
+        # due, a timed due (rescheduler), or an existing deadline all count
+        # as Todoist-owned and must not be overwritten. `date-locked` still
+        # blocks even filling empty fields. CREATE has no existing task so
+        # both fields write unconditionally.
+        skipped_dates = apply_project_dates(
+            body,
+            start_date=start_date,
+            target_date=target_date,
+            existing=existing,
         )
-        # If the Todoist task carries a timed due (datetime set), preserve
-        # the operator's time and skip the date-only update from GitHub.
-        # `deadline` has no time component in Todoist so deadline_date is
-        # always written (unless date-locked killswitch fires). CREATE has
-        # no existing Todoist task so both fields write unconditionally.
-        due_has_time = bool(
-            existing and (existing.get("due") or {}).get("datetime")
-        )
-        skipped_dates: list[str] = []
-        if start_date:
-            if date_locked or due_has_time:
-                skipped_dates.append("due")
-            else:
-                body["due_date"] = start_date
-        if target_date:
-            if date_locked:
-                skipped_dates.append("deadline")
-            else:
-                body["deadline_date"] = target_date
 
         if existing:
             # NOTE: never overwrite Todoist labels on update — the user may

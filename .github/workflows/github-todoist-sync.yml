@@ -1,0 +1,70 @@
+# GitHub Issues → Todoist sync, every 10 minutes.
+#
+# Required repository secrets:
+#   TODOIST_API_TOKEN     Todoist REST token
+#   GH_PAT                PAT that can read Issues on every synced repo
+#                         and GitHub Projects (see todoist-github-sync/secrets.example)
+#   GITHUB_PROJECTS_JSON  JSON body (not a path), same shape as
+#                         todoist-github-sync/schema.example.json
+#
+# Default GITHUB_TOKEN cannot read other repositories or Projects.
+# Setup: root README.md → "GitHub → Todoist sync".
+
+name: GitHub → Todoist sync
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Plan only; do not write to Todoist
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-todoist-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Materialize project mapping
+        env:
+          GITHUB_PROJECTS_JSON: ${{ secrets.GITHUB_PROJECTS_JSON }}
+        run: |
+          if [ -z "$GITHUB_PROJECTS_JSON" ]; then
+            echo "Missing secret GITHUB_PROJECTS_JSON" >&2
+            exit 1
+          fi
+          printf '%s\n' "$GITHUB_PROJECTS_JSON" > "$RUNNER_TEMP/github-projects.json"
+
+      - name: Run sync
+        env:
+          TODOIST_API_TOKEN: ${{ secrets.TODOIST_API_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "$TODOIST_API_TOKEN" ]; then
+            echo "Missing secret TODOIST_API_TOKEN" >&2
+            exit 1
+          fi
+          if [ -z "$GH_TOKEN" ]; then
+            echo "Missing secret GH_PAT" >&2
+            exit 1
+          fi
+          args=(--config "$RUNNER_TEMP/github-projects.json")
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          python3 todoist-github-sync/github_todoist_sync.py "${args[@]}"
+
+      - name: Remove materialized config
+        if: always()
+        run: rm -f "$RUNNER_TEMP/github-projects.json"
