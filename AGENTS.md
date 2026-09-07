@@ -1,14 +1,14 @@
 # Agent notes (task-rescheduler)
 
-Filled mapping JSON, tokens, `POLICY.md`, and `TASK_CONTEXT.md` are **not** in git. Do not invent them.
+This repository holds **two independent products**. Do not invent private
+config (tokens, filled mapping JSON, live `POLICY.md` / `TASK_CONTEXT.md`).
+Follow the product README for the product you are changing.
 
-## Add a GitHub → Todoist sync project
+## todoist-github-sync
 
-Follow the numbered procedure in the root README:
+Procedure: [Add a project (humans and agents)](todoist-github-sync/README.md#add-a-project-humans-and-agents)
 
-[Add a project (humans and agents)](README.md#add-a-project-humans-and-agents)
-
-Summary of the contract:
+Contract:
 
 1. Required inputs: GitHub Project URL and Todoist project URL (or `GET /projects` ids). If either is missing, ask.
 2. `github_repos` must be `owner/repo` from `gh project item-list`, not a guessed name.
@@ -17,10 +17,17 @@ Summary of the contract:
 5. Write destination: GitHub Actions variable `PROJECTS_JSON`, or the private file `$GITHUB_PROJECTS_CONFIG`. Never commit `github-projects.json`.
 6. Dry-run before apply. `skip-bad-project` means a bad Todoist id.
 
-## Schedule
+Scheduler CLI: `todoist-github-sync/github_todoist_sync.py`. Wrapper: `todoist-github-sync/cron.example.sh`.
 
-Same CLI for Actions, cron, and Hermes: `todoist-github-sync/github_todoist_sync.py`. Wrapper: `todoist-github-sync/cron.example.sh`.
+## todoist-rescheduler
 
-## Todoist rescheduler
+Product map: [`todoist-rescheduler/README.md`](todoist-rescheduler/README.md).
+Skill: [`todoist-rescheduler/SKILL.md`](todoist-rescheduler/SKILL.md).
 
-Placement skill: [`todoist-rescheduler/SKILL.md`](todoist-rescheduler/SKILL.md). Product map: [`todoist-rescheduler/README.md`](todoist-rescheduler/README.md). Do not invent `POLICY.md` or tokens; copy `POLICY.template.md`; dry-run first (`run.js` applies when neither `--dry-run` nor `--apply` is set).
+Contract:
+
+1. Do not invent `POLICY.md`, tokens, or calendar secrets.
+2. Copy `POLICY.template.md` to a private path; set `$TASK_RESCHEDULER_POLICY`.
+3. Dry-run first. `run.js` **applies** if neither `--dry-run` nor `--apply` is passed; `engine` `run` defaults to dry-run.
+4. Calendar busy/free: `GOOGLE_CALENDAR_ICS_URL` (secret iCal) or `--no-calendar`. No Hermes / `gog`.
+5. Never commit live `POLICY.md` / `TASK_CONTEXT.md`.
