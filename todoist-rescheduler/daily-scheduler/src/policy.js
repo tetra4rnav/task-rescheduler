@@ -13,8 +13,8 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Default: todoist-rescheduler/POLICY.md, walking up from this module
-// (engine/src/policy.js) → ../.. = todoist-rescheduler/, then POLICY.md.
+// Default: repo_root/todoist-rescheduler/POLICY.md, walking up from this module
+// (daily-scheduler/src/policy.js) → ../.. = todoist-rescheduler/, then POLICY.md.
 export function defaultPolicyPath() {
   return path.resolve(__dirname, '..', '..', 'POLICY.md');
 }

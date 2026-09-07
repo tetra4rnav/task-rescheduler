@@ -1,8 +1,4 @@
-# Daily Scheduler (engine)
-
-> **Product front door:** start at [`../README.md`](../README.md).
-> This directory is the planner core (`engine/`). The orchestrator is
-> `../run.js`. Agent procedure: [`../SKILL.md`](../SKILL.md).
+# Daily Scheduler
 
 Deterministic, idempotent task-rescheduler.
 
@@ -338,14 +334,14 @@ Do **not** replace existing cron until dry-run, smoke, apply, and idempotency ch
 Example command to evaluate first:
 
 ```bash
-cd /path/to/todoist-rescheduler/engine && \
-node ./bin/daily-scheduler.js run --dry-run --date "$(date +%F)" --timezone UTC
+cd /path/to/your/workspace/scripts/daily-scheduler && \
+node ./src/main.js run --dry-run --date "$(date +%F)" --timezone UTC
 ```
 
 Todoist-only cron-friendly variant:
 
 ```bash
-cd /path/to/todoist-rescheduler/engine && \
+cd /path/to/your/workspace/scripts/daily-scheduler && \
 node ./src/main.js run --apply --todoist-only --timezone UTC --days 3\n+```
 
 Recommended rollout:

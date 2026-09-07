@@ -20,7 +20,3 @@ Summary of the contract:
 ## Schedule
 
 Same CLI for Actions, cron, and Hermes: `todoist-github-sync/github_todoist_sync.py`. Wrapper: `todoist-github-sync/cron.example.sh`.
-
-## Todoist rescheduler
-
-Placement skill: [`todoist-rescheduler/SKILL.md`](todoist-rescheduler/SKILL.md). Product map: [`todoist-rescheduler/README.md`](todoist-rescheduler/README.md). Do not invent `POLICY.md` or tokens; copy `POLICY.template.md`; dry-run first (`run.js` applies when neither `--dry-run` nor `--apply` is set).

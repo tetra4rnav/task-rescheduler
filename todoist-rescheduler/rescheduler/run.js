@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * run.js — deterministic 5-stage Todoist rescheduler orchestrator.
+ * rescheduler/run.js — deterministic 5-stage Todoist rescheduler orchestrator.
  *
  * Stages 1, 2, 3 are owned by this binary.
  * Stages 4 (memory) and 5 (report) are handled by the cron payload.
@@ -13,10 +13,10 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-// Package root is this file's directory; the planner lives under engine/.
-const PACKAGE_ROOT = __dirname;
-const WORKSPACE = PACKAGE_ROOT;
-const SCHEDULER = path.join(PACKAGE_ROOT, 'engine', 'bin', 'daily-scheduler.js');
+// Repo layout: repo_root/{rescheduler,daily-scheduler,...}. run.js lives in rescheduler/.
+// WORKSPACE = repo root; SCHEDULER points at the planner binary.
+const WORKSPACE = path.resolve(__dirname, '..');
+const SCHEDULER = path.join(WORKSPACE, 'daily-scheduler', 'bin', 'daily-scheduler.js');
 const ARTIFACT_ROOT = process.env.RESCHEDULER_ARTIFACT_DIR || '/tmp/rescheduler';
 
 const DEFAULT_TZ = 'UTC';
@@ -203,12 +203,7 @@ function run_(argv) {
   return { exitCode: 0, result };
 }
 
-module.exports = {
-  run: run_,
-  parseArgs,
-  PACKAGE_ROOT,
-  SCHEDULER,
-};
+module.exports = { run: run_, parseArgs };
 
 if (require.main === module) {
   const { exitCode } = run_(process.argv.slice(2));
