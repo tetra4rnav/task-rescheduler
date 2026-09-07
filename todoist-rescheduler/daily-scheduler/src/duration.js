@@ -105,3 +105,25 @@ export function estimateDuration(task, config) {
     confidence: 0.35,
   };
 }
+
+export function hasFixedDurationLabel(task, fixedDurationLabel) {
+  const name = String(fixedDurationLabel ?? '').trim().toLowerCase();
+  if (!name) return false;
+  return (task.labels ?? []).some((label) => String(label).toLowerCase() === name);
+}
+
+/** Persist an estimate only when Todoist has no duration and the task is not fixed. */
+export function shouldPersistDuration(task, { durationSource, fixedDurationLabel } = {}) {
+  if (durationSource === 'todoist_duration') return false;
+  // Planner overwrites task.duration with the estimate object; live/LLM tasks
+  // still carry the normalized Todoist minutes (or null).
+  if (durationSource == null && task.duration) return false;
+  if (hasFixedDurationLabel(task, fixedDurationLabel)) return false;
+  return true;
+}
+
+export function todoistDurationWriteFields(minutes) {
+  const amount = Number(minutes);
+  if (!Number.isFinite(amount) || amount <= 0) return {};
+  return { duration: { amount: Math.round(amount), unit: 'minute' } };
+}

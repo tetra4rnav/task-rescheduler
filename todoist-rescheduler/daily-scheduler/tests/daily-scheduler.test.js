@@ -78,8 +78,6 @@ function normalizeTasks(taskOverrides = rawTasks, options = makeOptions()) {
     excludedLabels: options.config.excludedLabels,
     requireAutoScheduleLabel: options.config.requireAutoScheduleLabel,
     autoScheduleLabel: options.config.autoScheduleLabel,
-    assignmentMarkerLabel: options.config.assignmentMarkerLabel,
-    plannerVersionLabelPrefix: options.config.plannerVersionLabelPrefix,
   }));
 }
 
@@ -184,7 +182,11 @@ class FakeTodoistClient {
       timezone: payload.timezone,
       is_recurring: Boolean(task.due?.is_recurring),
     };
-    if (payload.labels) task.labels = [...payload.labels];
+    if (payload.duration) {
+      task.duration = payload.duration.amount != null
+        ? payload.duration
+        : { amount: payload.duration, unit: payload.duration_unit || 'minute' };
+    }
     return { ok: true };
   }
 }
@@ -485,8 +487,7 @@ test('21. todoist-only planning keeps calendar operations empty and plans due up
   const op = plan.operations.todoist_due_update.find((entry) => entry.status === 'planned');
   assert.ok(op);
   assert.equal(op.desired_due, toUtcRfc3339(plan.scheduled.find((entry) => entry.task_id === op.task_id).start));
-  assert.ok(op.desired_labels.includes('task-rescheduler-assigned'));
-  assert.ok(op.desired_labels.includes('task-rescheduler-planner-v1-1-0'));
+  assert.equal(op.desired_labels, undefined);
 });
 
 test('22. todoist-only apply updates Todoist but never calls calendar mutations', async () => {
@@ -507,10 +508,11 @@ test('22. todoist-only apply updates Todoist but never calls calendar mutations'
   assert.equal(calendarClient.updateCalls, 0);
   assert.ok(applied.operations.todoist_due_update.some((entry) => entry.status === 'verified'));
   assert.ok(todoistClient.calls.length > 0);
-  assert.deepEqual(Object.keys(todoistClient.calls[0].payload).sort(), ['due_datetime', 'labels']);
+  assert.equal(todoistClient.calls[0].payload.labels, undefined);
+  assert.ok(Object.keys(todoistClient.calls[0].payload).includes('due_datetime'));
 });
 
-test('24. normalize exposes deadline, scheduled start, assignment source, and planner version', async () => {
+test('24. normalize exposes deadline, scheduled start, and duration without label authorship', async () => {
   const normalized = normalizeTodoistTask({
     id: 'model-1',
     content: 'Model task',
@@ -521,8 +523,8 @@ test('24. normalize exposes deadline, scheduled start, assignment source, and pl
   }, { requireAutoScheduleLabel: true });
   assert.equal(normalized.deadline_at, '2026-03-10');
   assert.equal(normalized.scheduled_start, '2026-03-09T14:00:00Z');
-  assert.equal(normalized.assignment_source, 'task-rescheduler');
-  assert.equal(normalized.planner_version, '1.1.0');
+  assert.equal(normalized.assignment_source, null);
+  assert.equal(normalized.planner_version, null);
   assert.equal(normalized.duration, 30);
 });
 
@@ -666,4 +668,25 @@ test('23. todoist-only verify ignores calendar state and succeeds after due sync
   assert.equal(verified.ok, true);
   assert.equal(verified.mismatches.length, 0);
   assert.ok(verified.plan.operations.todoist_due_update.every((entry) => entry.status === 'verified' || entry.status === 'noop'));
+});
+
+test('35. apply writes estimated duration only when Todoist duration is empty and not fixed', async () => {
+  const emptyDurationTasks = [
+    { id: 'empty-dur', content: 'Needs estimate', labels: [], priority: 4, due: null },
+    { id: 'has-dur', content: 'Already set', labels: [], priority: 4, due: null, duration: { amount: 25, unit: 'minute' } },
+    { id: 'fixed-dur', content: 'Fixed empty', labels: ['fixed-duration'], priority: 4, due: null },
+  ];
+  const { plan } = await planWith({
+    tasks: emptyDurationTasks,
+    events: [],
+    options: { todoistOnly: true, syncTodoistDue: true, date: '2026-03-08', days: 1, workingHours: '09:00-18:00' },
+  });
+  const emptyOp = plan.operations.todoist_due_update.find((entry) => entry.task_id === 'empty-dur');
+  const hasOp = plan.operations.todoist_due_update.find((entry) => entry.task_id === 'has-dur');
+  const fixedOp = plan.operations.todoist_due_update.find((entry) => entry.task_id === 'fixed-dur');
+  assert.ok(emptyOp);
+  assert.equal(typeof emptyOp.desired_duration_minutes, 'number');
+  assert.ok(emptyOp.desired_duration_minutes > 0);
+  assert.equal(hasOp.desired_duration_minutes, null);
+  assert.equal(fixedOp.desired_duration_minutes, null);
 });

@@ -17,25 +17,27 @@ Deterministic, idempotent task-rescheduler.
 
 - **タスクレジストリJSON**（単一永続・毎回更新・フラグ保持）:
   `$HOME/cron/output/tasks-registry.json`
-  - 再配置対象の全タスクの**識別情報のみ**を格納: `id`, `project`, `is_github_issue`,
-    `owner`, `repo`, `issue_number`, `due`, `priority`, `deadline_at`, `labels`
+  - 再配置対象の識別情報を格納: `id`, `project`, `is_github_issue`,
+    `owner`, `repo`, `issue_number`, `due`, `duration_minutes`, `priority`, `deadline_at`, `labels`
   - タスクの詳細（説明文・中身）は格納しない
   - `rescheduled: true` フラグ + `last_rescheduled_at` を、一度配置したタスクに付与。
     ファイルが無い場合は新規作成し、以後毎回上書き更新（フラグは保持）
-- **政策markdown**（人間が作成・編集・git管理）: `POLICY.md`
-  - 曜日別稼働時間 / 朝の短時間高優先タスク配置 / タイムゾーン(UTC) など
-    「再配置の方針」を記載
+- **政策markdown**（人間が作成・編集。active copy は git に置かない）: `POLICY.md`
+  - 雛形は `POLICY.template.md`。パスは `$TASK_RESCHEDULER_POLICY`
+  - YAML: 除外ラベルと `fixed_duration`。本文は LLM 向け
   - LLM は毎回このファイルを読んでから配置を判断する
-- **書き戻し**: LLM が配置先を決め、Todoist due datetime を直接更新（新方式内で実施）
+- **書き戻し**: LLM が配置先を決め、Todoist due datetime を更新。duration は空かつ fixed でないときだけ書く。ラベルは書かない。
 
 ### フロー
 
 1. `export-registry` でレジストリを更新（Todoist 全タスク取得 → JSON 書き込み）
 2. `POLICY.md` を読む
 3. LLM が レジストリ + 政策 から配置を判断 → placements JSON を作る
-   `[{ task_id, due: "2026-09-06T10:00:00Z" }, ...]`
+   `[{ task_id, due: "2026-09-06T10:00:00Z", duration_minutes?: 45 }, ...]`
+   `duration_minutes` is optional. Apply writes it only when the Todoist
+   task has no duration and does not carry the POLICY `fixed_duration` label.
 4. プレビュー提示 → ユーザー承認待ち
-5. `apply-llm` で Todoist due 更新 + レジストリに `rescheduled` フラグ付与
+5. `apply-llm` で Todoist due（空なら duration も）更新 + レジストリに `rescheduled` フラグ付与
 6. audit log 記録
 
 ### コマンド
@@ -67,6 +69,7 @@ node src/main.js apply-llm --timezone UTC --placements /path/to/placements.json
       "repo": "RZDC_Philippines_VH",
       "issue_number": 87,
       "due": "2026-09-05",
+      "duration_minutes": null,
       "priority": 1,
       "deadline_at": "2026-09-08",
       "labels": ["github-issue"],
@@ -80,9 +83,10 @@ node src/main.js apply-llm --timezone UTC --placements /path/to/placements.json
 ### 政策ファイル (POLICY.md)
 
 人間が編集する「再配置方針」markdown。LLM は毎回読んで従う。
-初期雛形が `POLICY.md` にある。内容例:
-- 曜日別の稼働時間 (UTC)
-- 朝は短時間・高優先が先、昼以降は長時間の深い作業
+初期雛形は [`../POLICY.template.md`](../POLICY.template.md)。active copy は
+`$TASK_RESCHEDULER_POLICY` が指す私有パス（git に置かない）。内容例:
+- YAML front-matter: `exclude_from_reschedule`（再配置しない）と `fixed_duration`（duration を書かない）
+- 曜日別の稼働時間
 - 締切(deadline)厳守、due は着手日
 - `rescheduled` 済みタスクは基本動かさない
 
@@ -96,11 +100,15 @@ Planner version `1.1.0` separates task semantics in JSON:
 
 - `deadline_at`: immutable work deadline from Todoist `deadline.date`
 - `scheduled_start`: execution start stored as Todoist due datetime
-- `duration_minutes`: explicit or deterministic estimate
-- `assignment_source`: `manual` or `task-rescheduler`
-- `planner_version`: version encoded by the `task-rescheduler-planner-v<version>` label
+- `duration_minutes`: explicit Todoist duration or an in-memory estimate
+- `assignment_source` on a plan row: this run produced the placement (not a Todoist authorship stamp)
 
-Scheduling is opt-out. Tasks are eligible by default; add `no-auto-schedule` to exclude a task. task-rescheduler assignments add the full-label-safe markers `task-rescheduler-assigned` and `task-rescheduler-planner-v1-1-0`. Unmarked Todoist due datetimes are treated as manual assignments and are never overwritten.
+Scheduling is opt-out. Tasks are eligible by default; add the POLICY
+`exclude_from_reschedule` label (default `no-auto-schedule`) to exclude a
+task. Duration is not written back when the task already has a Todoist
+duration or carries `fixed_duration` (default `fixed-duration`). Apply does
+not write labels. Leftover `task-rescheduler-assigned` / planner-version
+labels, if present, are ignored.
 
 Date-only Todoist due values are never overwritten by the scheduler. They are placed in `manual_review` with `DATE_ONLY_DUE_REQUIRES_MIGRATION` until explicitly migrated to Todoist's deadline field.
 
@@ -163,6 +171,8 @@ Pure planning logic is separated from external I/O. `plan` can run entirely from
 ### Todoist
 
 - Reads `TODOIST_API_TOKEN` from the environment.
+- Reads the active policy from `$TASK_RESCHEDULER_POLICY` when set;
+  otherwise `todoist-rescheduler/POLICY.md` (not in git).
 - Does **not** read or print token values.
 - Does **not** write `.env`, secrets, or auth state.
 
@@ -226,7 +236,7 @@ No external writes occur.
 2. deterministic plan build
 3. schema validation
 4. state reload
-5. optional Todoist due sync (the only write path)
+5. optional Todoist due sync (and duration when empty and not fixed)
 6. Todoist verification
 7. final JSON report
 
@@ -242,8 +252,8 @@ Behavior:
 - Google Calendar is always read-only for availability
 - `operations.calendar_create`, `calendar_update`, `calendar_noop`, and `calendar_stale` remain empty
 - scheduled non-recurring tasks generate `todoist_due_update` operations automatically when `--todoist-only` or `--sync-todoist-due` is set
-- apply writes only Todoist `due_datetime`
-- verify checks Todoist due values and ignores Calendar mutation checks
+- apply writes Todoist `due_datetime`, and `duration` only when the task has none and is not `fixed_duration`
+- verify checks Todoist due values (and duration when the plan wrote it) and ignores Calendar mutation checks
 - recurring tasks still go to `manual_review`
 
 Operation statuses are explicit:
@@ -294,7 +304,7 @@ calendar events, so there are no managed-event idempotency concerns on the
 Calendar side.
 
 Todoist side idempotency: an operation is `noop` when the scheduled start equals
-the current Todoist `due_datetime` and labels already match. Re-running an apply
+the current Todoist `due_datetime` and no duration write is needed. Re-running an apply
 against the same state yields no write.
 
 Idempotency key:

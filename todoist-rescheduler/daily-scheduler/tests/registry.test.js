@@ -35,6 +35,7 @@ test('registry detects github issues and non-issue tasks', () => {
   assert.equal(gh.issue_number, 1);
   const plain = registry.tasks.find((t) => t.id === 't2');
   assert.equal(plain.is_github_issue, false);
+  assert.equal(plain.duration_minutes, null);
 });
 
 test('registry preserves rescheduled flag across merges and drops removed tasks', () => {

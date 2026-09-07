@@ -1,6 +1,6 @@
 import { buildPlanningWindow, buildBusyIntervals, findSlot, registerScheduledInterval } from './availability.js';
 import { PLAN_SCHEMA_VERSION, PLANNER_VERSION } from './constants.js';
-import { estimateDuration } from './duration.js';
+import { estimateDuration, shouldPersistDuration } from './duration.js';
 import { buildIdempotencyKey } from './markers.js';
 import { classifyTaskTarget, isBusyCalendarEvent, taskDeadline } from './normalize.js';
 import { computeTaskScore, compareTaskPriority } from './priority.js';
@@ -14,7 +14,15 @@ function sortEventsByStart(left, right) {
 function buildTodoistDueOperation(task, scheduledItem, options) {
   const desiredDue = toUtcRfc3339(scheduledItem.start);
   const currentDue = toUtcRfc3339(task.due.datetime);
-  const status = currentDue === desiredDue ? 'noop' : 'planned';
+  const persistDuration = shouldPersistDuration(task, {
+    durationSource: scheduledItem.duration_source,
+    fixedDurationLabel: options.config.fixedDurationLabel,
+  });
+  const desiredDurationMinutes = persistDuration
+    ? Number(scheduledItem.duration_minutes)
+    : null;
+  const dueUnchanged = currentDue === desiredDue;
+  const status = dueUnchanged && desiredDurationMinutes == null ? 'noop' : 'planned';
   return {
     status,
     task_id: task.id,
@@ -23,12 +31,7 @@ function buildTodoistDueOperation(task, scheduledItem, options) {
     scheduled_start: scheduledItem.start,
     desired_timezone: options.timezone,
     recurring: task.due.is_recurring,
-    previous_labels: task.labels,
-    desired_labels: [...new Set([
-      ...task.labels.filter((label) => !label.startsWith(options.config.plannerVersionLabelPrefix)),
-      options.config.assignmentMarkerLabel,
-      `${options.config.plannerVersionLabelPrefix}${(options.plannerVersion ?? PLANNER_VERSION).replaceAll('.', '-')}`,
-    ])].sort(),
+    desired_duration_minutes: desiredDurationMinutes,
     assignment_source: 'task-rescheduler',
     planner_version: options.plannerVersion ?? PLANNER_VERSION,
   };
@@ -349,7 +352,7 @@ export async function buildPlan({ tasks, calendarEvents, options, runId, generat
   for (const item of scheduled) {
     const task = targetTasks.find((candidate) => candidate.id === item.task_id);
     // Calendar WRITE removed (2026-09-05): no create/update/noop ops are
-    // generated here. Only Todoist due timestamps are written.
+    // generated here. Todoist due (and duration when allowed) is written.
     if ((options.syncTodoistDue || options.todoistOnly) && !task.due.is_recurring) {
       operations.todoist_due_update.push(buildTodoistDueOperation(task, item, options));
     }

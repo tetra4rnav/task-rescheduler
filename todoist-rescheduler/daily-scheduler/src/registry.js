@@ -7,9 +7,8 @@
 //
 // File location: $HOME/cron/output/tasks-registry.json (cron output dir).
 //
-// The registry deliberately stores ONLY identifying info (id, project,
-// github-issue flag, due, priority) — NOT task details. The LLM reasons from
-// this file plus the human-authored policy markdown.
+// The registry stores identifying info plus fields the LLM needs to decide
+// placements: due, duration_minutes (null if unset), labels, priority.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -54,6 +53,7 @@ function buildEntry(task, previous) {
     content: task.content ?? '', // short title for identification only
     ...gh,
     due,
+    duration_minutes: task.duration ?? null,
     priority: task.priority ?? 1,
     deadline_at: task.deadline_at ?? null,
     labels: task.labels ?? [],

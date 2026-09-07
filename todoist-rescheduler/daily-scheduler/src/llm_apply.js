@@ -5,25 +5,28 @@
 //
 //   {
 //     "placements": [
-//       { "task_id": "...", "due": "2026-09-06T10:00:00Z" },
+//       { "task_id": "...", "due": "2026-09-06T10:00:00Z", "duration_minutes": 45 },
 //       ...
 //     ]
 //   }
 //
-// For each placement: writes the Todoist due datetime, then marks the task as
-// `rescheduled: true` in the persistent registry with a timestamp.
-//
-// This is the WRITE path of the new LLM-driven rescheduler (2026-09-05).
+// `due` is required. `duration_minutes` is optional. Duration is written only
+// when the live task has no Todoist duration and does not carry the POLICY
+// fixed_duration label; otherwise due is written alone.
 
 import fs from 'node:fs/promises';
+import { shouldPersistDuration, todoistDurationWriteFields } from './duration.js';
 import { pickDefined } from './util.js';
 
 export async function applyLlmPlacements(placements, {
   todoistClient,
+  tasks = [],
+  fixedDurationLabel = 'fixed-duration',
   registryPath,
   logger,
 }) {
   const { loadRegistry, writeRegistry } = await import('./registry.js');
+  const taskLookup = new Map(tasks.map((task) => [String(task.id), task]));
   const results = [];
   const errors = [];
 
@@ -33,17 +36,31 @@ export async function applyLlmPlacements(placements, {
       errors.push({ task_id, error: 'missing task_id or due' });
       continue;
     }
+    const live = taskLookup.get(String(task_id));
+    const requestedMinutes = Number(placement.duration_minutes);
+    const writeDuration = live
+      && Number.isFinite(requestedMinutes)
+      && requestedMinutes > 0
+      && shouldPersistDuration(live, { fixedDurationLabel });
+    const payload = pickDefined({
+      due_datetime: due,
+      ...(writeDuration ? todoistDurationWriteFields(requestedMinutes) : {}),
+    });
     try {
-      await todoistClient.updateTaskDue(task_id, { due_datetime: due });
-      results.push({ task_id, due, status: 'applied' });
-      logger?.info?.('llm placement applied', { taskId: task_id, due });
+      await todoistClient.updateTaskDue(task_id, payload);
+      results.push({
+        task_id,
+        due,
+        duration_minutes: writeDuration ? Math.round(requestedMinutes) : null,
+        status: 'applied',
+      });
+      logger?.info?.('llm placement applied', { taskId: task_id, due, durationWritten: writeDuration });
     } catch (error) {
       errors.push({ task_id, due, error: error.message });
       logger?.error?.('llm placement failed', { taskId: task_id, error: error.message });
     }
   }
 
-  // Update the registry: set rescheduled=true + timestamp for applied tasks.
   const registry = await loadRegistry(registryPath);
   const appliedIds = new Set(results.map((r) => String(r.task_id)));
   const now = new Date().toISOString();

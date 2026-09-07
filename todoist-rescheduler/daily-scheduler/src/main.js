@@ -44,8 +44,6 @@ async function loadState(options, logger) {
     excludedLabels: options.config.excludedLabels,
     requireAutoScheduleLabel: options.config.requireAutoScheduleLabel,
     autoScheduleLabel: options.config.autoScheduleLabel,
-    assignmentMarkerLabel: options.config.assignmentMarkerLabel,
-    plannerVersionLabelPrefix: options.config.plannerVersionLabelPrefix,
   }));
 
   const from = formatRfc3339InTimeZone(startOfDay(options.date, options.timezone), options.timezone);
@@ -78,18 +76,16 @@ async function loadState(options, logger) {
 }
 
 // Merge label rules from POLICY.md into a NEW options object (the parseCli
-// result is deep-frozen, so we rebuild it rather than mutate). POLICY.md is the
-// source of truth for label-based exclusion / assignment (M2 2026-09-05);
-// built-in DEFAULT_CONFIG values are only fallbacks.
+// result is deep-frozen, so we rebuild it rather than mutate). POLICY.md is
+// the source of truth for exclusion and fixed-duration labels.
 async function applyPolicyToOptions(options) {
   const policy = await loadLabelValues();
-  if (!policy.excludeFromReschedule.length && !policy.assignmentMarker) return options; // no policy → keep
+  if (!policy.excludeFromReschedule.length && !policy.fixedDuration) return options;
   const cfg = { ...options.config };
   if (policy.excludeFromReschedule.length) {
     cfg.excludedLabels = [...new Set([...(cfg.excludedLabels ?? []), ...policy.excludeFromReschedule])];
   }
-  if (policy.assignmentMarker) cfg.assignmentMarkerLabel = policy.assignmentMarker;
-  if (policy.plannerVersionPrefix) cfg.plannerVersionLabelPrefix = policy.plannerVersionPrefix;
+  if (policy.fixedDuration) cfg.fixedDurationLabel = policy.fixedDuration;
   return { ...options, config: Object.freeze(cfg) };
 }
 
@@ -150,6 +146,8 @@ export async function run(argv = process.argv.slice(2), dependencies = {}) {
     const placements = await readPlacements(options.placementsFile);
     const result = await applyLlmPlacements(placements, {
       todoistClient: state.todoistClient,
+      tasks: state.tasks,
+      fixedDurationLabel: options.config.fixedDurationLabel,
       registryPath: options.registryPath,
       logger,
     });
