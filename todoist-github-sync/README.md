@@ -139,7 +139,7 @@ Config path resolves in this order:
 
 Both must point to the same schema; if neither is set the script exits
 with a clear error. GitHub Actions pastes the JSON into repository
-variable `GITHUB_PROJECTS_JSON`; cron and agents use a private file path.
+variable `PROJECTS_JSON`; cron and agents use a private file path.
 See [`secrets.example`](./secrets.example) and [`cron.example.sh`](./cron.example.sh).
 
 ## Requirements

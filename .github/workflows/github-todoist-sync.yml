@@ -6,8 +6,9 @@
 #                         and GitHub Projects (see todoist-github-sync/secrets.example)
 #
 # Required repository variable (Actions → Variables, not Secrets):
-#   GITHUB_PROJECTS_JSON  JSON body (not a path), same shape as
+#   PROJECTS_JSON         JSON body (not a path), same shape as
 #                         todoist-github-sync/schema.example.json
+#                         Name cannot start with GITHUB_ (GitHub restriction).
 #                         A variable is used so you can view and edit the
 #                         mapping in the GitHub UI; it is not a credential.
 #
@@ -42,13 +43,13 @@ jobs:
 
       - name: Materialize project mapping
         env:
-          GITHUB_PROJECTS_JSON: ${{ vars.GITHUB_PROJECTS_JSON }}
+          PROJECTS_JSON: ${{ vars.PROJECTS_JSON }}
         run: |
-          if [ -z "$GITHUB_PROJECTS_JSON" ]; then
-            echo "Missing repository variable GITHUB_PROJECTS_JSON" >&2
+          if [ -z "$PROJECTS_JSON" ]; then
+            echo "Missing repository variable PROJECTS_JSON" >&2
             exit 1
           fi
-          printf '%s\n' "$GITHUB_PROJECTS_JSON" > "$RUNNER_TEMP/github-projects.json"
+          printf '%s\n' "$PROJECTS_JSON" > "$RUNNER_TEMP/github-projects.json"
 
       - name: Run sync
         env:

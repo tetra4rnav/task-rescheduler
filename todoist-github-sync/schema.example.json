@@ -1,6 +1,6 @@
 {
   "$schema_version": "1.0",
-  "$comment": "Copy this file, fill it, and keep the copy private. GitHub Actions: paste the JSON body into repository variable GITHUB_PROJECTS_JSON (not a secret — secrets cannot be re-read). cron / Hermes / other agents: point GITHUB_PROJECTS_CONFIG at the file path.",
+  "$comment": "Copy this file, fill it, and keep the copy private. GitHub Actions: paste the JSON body into repository variable PROJECTS_JSON (names cannot start with GITHUB_). cron / Hermes / other agents: point GITHUB_PROJECTS_CONFIG at the file path.",
   "projects": [
     {
       "name": "Example Project",

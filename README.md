@@ -66,7 +66,7 @@ All three call the same CLI. Run `--dry-run` first.
 
    | Name | Value |
    |---|---|
-   | `GITHUB_PROJECTS_JSON` | The **JSON body** of your filled mapping, not a file path |
+   | `PROJECTS_JSON` | The **JSON body** of your filled mapping, not a file path |
 
    The mapping is a variable on purpose: it is not a credential, and a secret would be painful to edit. It is still not in git.
 
