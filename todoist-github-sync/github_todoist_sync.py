@@ -41,7 +41,8 @@ TODOIST_BASE = "https://api.todoist.com/api/v1"
 LABEL = "github-issue"
 DATE_LOCK_LABEL = "date-locked"
 URL_RE = re.compile(r"https://github\.com/([^/\s]+)/([^/\s]+)/issues/(\d+)")
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
+REPO_SPEC_RE = re.compile(r"^([^/\s]+)/([^/\s]+)$")
 
 
 # ---------------------------------------------------------------------------
@@ -54,11 +55,42 @@ class ConfigError(ValueError):
 
 
 REQUIRED_PROJECT_KEYS = (
-    "name", "github_owner", "github_repos", "todoist_project",
+    "name", "github_repos", "todoist_project_id",
 )
 OPTIONAL_PROJECT_KEYS = (
-    "github_project_number", "issue_labels_include", "issue_labels_exclude",
+    "github_project_number", "github_project_owner",
+    "issue_labels_include", "issue_labels_exclude",
 )
+
+
+def parse_repo_spec(spec: str) -> tuple[str, str]:
+    """Split ``owner/repo`` into ``(owner, repo)``. Raises ConfigError."""
+    m = REPO_SPEC_RE.match(str(spec).strip())
+    if not m:
+        raise ConfigError(
+            f"github_repos entries must be 'owner/repo'; got {spec!r}"
+        )
+    return m.group(1), m.group(2)
+
+
+def repo_specs(project: dict) -> list[tuple[str, str]]:
+    """Return ``[(owner, repo), ...]`` for one config project."""
+    return [parse_repo_spec(s) for s in project["github_repos"]]
+
+
+def resolve_github_project_owner(project: dict) -> Optional[str]:
+    """Owner passed to ``gh project item-list --owner``.
+
+    Explicit ``github_project_owner`` wins. Otherwise every ``owner/repo``
+    in the entry must share one owner.
+    """
+    explicit = project.get("github_project_owner")
+    if explicit:
+        return str(explicit)
+    owners = {owner for owner, _ in repo_specs(project)}
+    if len(owners) == 1:
+        return next(iter(owners))
+    return None
 
 
 def load_config(path: Path) -> dict:
@@ -93,14 +125,27 @@ def load_config(path: Path) -> dict:
                 raise ConfigError(
                     f"config `projects[{i}].{key}` missing or empty"
                 )
-        if not isinstance(p["github_repos"], list) or not all(
-            isinstance(r, str) for r in p["github_repos"]
-        ):
+        if not isinstance(p["github_repos"], list) or not p["github_repos"]:
             raise ConfigError(
-                f"config `projects[{i}].github_repos` must be a list of strings"
+                f"config `projects[{i}].github_repos` must be a non-empty list"
+            )
+        for spec in p["github_repos"]:
+            if not isinstance(spec, str):
+                raise ConfigError(
+                    f"config `projects[{i}].github_repos` must be a list of "
+                    f"'owner/repo' strings"
+                )
+            parse_repo_spec(spec)
+        p["todoist_project_id"] = str(p["todoist_project_id"])
+        if p.get("github_project_number") and not resolve_github_project_owner(p):
+            raise ConfigError(
+                f"config `projects[{i}]` has github_project_number but "
+                f"repos span multiple owners; set github_project_owner"
             )
         for key in OPTIONAL_PROJECT_KEYS:
-            if key in p and key != "github_project_number":
+            if key in p and key not in (
+                "github_project_number", "github_project_owner",
+            ):
                 if not isinstance(p[key], list):
                     raise ConfigError(
                         f"config `projects[{i}].{key}` must be a list"
@@ -364,7 +409,8 @@ class TodoistClient:
 
 
 def all_projects(client: TodoistClient) -> dict[str, dict]:
-    return {p["name"]: p for p in client.get("/projects")}
+    """Index Todoist projects by string id."""
+    return {str(p["id"]): p for p in client.get("/projects")}
 
 
 def managed_tasks(
@@ -687,7 +733,7 @@ def plan_actions(
     issues: list[dict],
     todoist_tasks_by_issue: dict[tuple[str, str, int], dict],
     project_dates: dict[tuple[str, str, int], tuple[Optional[str], Optional[str]]],
-    todoist_projects_by_name: dict[str, dict],
+    todoist_projects_by_id: dict[str, dict],
     transport: Transport,
     *,
     fetch_task_comments_fn: Optional[Callable[[str], list[dict]]] = None,
@@ -708,8 +754,8 @@ def plan_actions(
     """
     project_by_repo: dict[tuple[str, str], dict] = {}
     for proj in config["projects"]:
-        for r in proj["github_repos"]:
-            project_by_repo[(proj["github_owner"], r)] = proj
+        for owner, repo in repo_specs(proj):
+            project_by_repo[(owner, repo)] = proj
 
     log: list[dict] = []
     # Pass 2 plan — one entry per open issue that needs parent or deps.
@@ -734,16 +780,16 @@ def plan_actions(
                 "action": "skip-no-entry",
             })
             continue
-        todoist_project_name = match_entry["todoist_project"]
-        project = todoist_projects_by_name.get(todoist_project_name)
+        todoist_pid = str(match_entry["todoist_project_id"])
+        project = todoist_projects_by_id.get(todoist_pid)
         if project is None:
             log.append({
                 "owner": owner, "repo": repo_name, "number": issue["number"],
                 "action": "skip-bad-project",
-                "todoist_project": todoist_project_name,
+                "todoist_project_id": todoist_pid,
             })
             continue
-        project_id = project["id"]
+        project_id = str(project["id"])
         key = (owner, repo_name, issue["number"])
         state = issue["state"].lower()
 
@@ -792,7 +838,7 @@ def plan_actions(
             update_body = {k: v for k, v in body.items() if k != "labels"}
             transport.update_task(existing["id"], update_body)
             current_pid = existing.get("project_id")
-            if current_pid != project_id:
+            if current_pid is not None and str(current_pid) != project_id:
                 transport.move_task(existing["id"], project_id)
             added = _mirror_comments(
                 transport, existing["id"], issue, fetch_c(existing["id"]),
@@ -912,14 +958,24 @@ def _collect_issues(
     warnings: list[str] = []
     soft_warnings: list[str] = []
     for proj in config["projects"]:
-        owner = proj["github_owner"]
         proj_num = proj.get("github_project_number")
+        owner_for_board = resolve_github_project_owner(proj)
         if proj_num:
-            dates, warn = fetch_project_dates(runner, owner, proj_num)
-            project_dates.update(dates)
-            if warn:
-                warnings.append(warn)
-        for repo in proj["github_repos"]:
+            if not owner_for_board:
+                warnings.append(
+                    f"WARN: project {proj.get('name')!r} has "
+                    f"github_project_number but no github_project_owner "
+                    f"and repos span multiple owners; start/target dates "
+                    f"will not sync."
+                )
+            else:
+                dates, warn = fetch_project_dates(
+                    runner, owner_for_board, proj_num,
+                )
+                project_dates.update(dates)
+                if warn:
+                    warnings.append(warn)
+        for owner, repo in repo_specs(proj):
             rows, gh_warn = fetch_issues(runner, owner, repo)
             if gh_warn:
                 # gh CLI doesn't support parent/blocked_by fields → soft
@@ -1001,14 +1057,14 @@ def main(argv=None) -> int:
         (m_owner, m_repo, m_num): t
         for (t, m_owner, m_repo, m_num) in managed_tasks(tasks)
     }
-    projects_by_name = all_projects(client)
+    projects_by_id = all_projects(client)
 
     transport: Transport = (
         RecordingTransport() if args.dry_run else TodoistTransport(client)
     )
 
     log = plan_actions(
-        config, issues, tasks_by_issue, project_dates, projects_by_name,
+        config, issues, tasks_by_issue, project_dates, projects_by_id,
         transport,
         fetch_task_comments_fn=lambda task_id: fetch_task_comments(client, task_id),
     )

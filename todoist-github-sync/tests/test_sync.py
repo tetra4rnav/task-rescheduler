@@ -17,10 +17,26 @@ plan_actions = _sync.plan_actions
 RecordingTransport = _sync.RecordingTransport
 LABEL = _sync.LABEL
 DATE_LOCK_LABEL = _sync.DATE_LOCK_LABEL
+parse_repo_spec = _sync.parse_repo_spec
+ConfigError = _sync.ConfigError
 
 
 def _body() -> dict:
     return {"content": "x", "description": "d", "labels": [LABEL]}
+
+
+class ParseRepoSpecTests(unittest.TestCase):
+    def test_owner_repo(self):
+        self.assertEqual(parse_repo_spec("tetra4rnav/ideas-jetro"),
+                         ("tetra4rnav", "ideas-jetro"))
+
+    def test_rejects_bare_repo(self):
+        with self.assertRaises(ConfigError):
+            parse_repo_spec("ideas-jetro")
+
+    def test_rejects_url(self):
+        with self.assertRaises(ConfigError):
+            parse_repo_spec("https://github.com/a/b")
 
 
 class ApplyProjectDatesTests(unittest.TestCase):
@@ -137,12 +153,11 @@ class ApplyProjectDatesTests(unittest.TestCase):
 
 def _config() -> dict:
     return {
-        "$schema_version": "1.0",
+        "$schema_version": "1.1",
         "projects": [{
             "name": "P",
-            "github_owner": "me",
-            "github_repos": ["repo"],
-            "todoist_project": "TodoistP",
+            "github_repos": ["me/repo"],
+            "todoist_project_id": "proj-1",
             "github_project_number": 1,
         }],
     }
@@ -181,7 +196,7 @@ class PlanActionsDateSkipTests(unittest.TestCase):
             [_issue()],
             {("me", "repo", 1): existing},
             {("me", "repo", 1): ("2026-09-01", "2026-09-10")},
-            {"TodoistP": {"id": "proj-1", "name": "TodoistP"}},
+            {"proj-1": {"id": "proj-1", "name": "TodoistP"}},
             transport,
         )
         updates = [c for c in transport.calls if c["op"] == "update"]
@@ -197,7 +212,7 @@ class PlanActionsDateSkipTests(unittest.TestCase):
             [_issue()],
             {},
             {("me", "repo", 1): ("2026-09-01", "2026-09-10")},
-            {"TodoistP": {"id": "proj-1", "name": "TodoistP"}},
+            {"proj-1": {"id": "proj-1", "name": "TodoistP"}},
             transport,
         )
         creates = [c for c in transport.calls if c["op"] == "create"]
