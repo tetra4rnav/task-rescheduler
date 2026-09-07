@@ -52,14 +52,23 @@ All three call the same CLI. Run `--dry-run` first.
 
 **GitHub Actions** (workflow in this repo, every 10 minutes)
 
-1. Fork or use your own copy of the repo (secrets stay on *your* repo).
-2. Settings → Secrets and variables → Actions, add:
+1. Fork or use your own copy of the repo (credentials stay on *your* repo).
+2. Settings → Secrets and variables → Actions:
 
-   | Secret | Value |
+   **Secrets** (write-only; you cannot read them back):
+
+   | Name | Value |
    |---|---|
    | `TODOIST_API_TOKEN` | Todoist REST token |
    | `GH_PAT` | PAT (`gh` uses this as `GH_TOKEN`) |
+
+   **Variables** (visible and editable in the UI):
+
+   | Name | Value |
+   |---|---|
    | `GITHUB_PROJECTS_JSON` | The **JSON body** of your filled mapping, not a file path |
+
+   The mapping is a variable on purpose: it is not a credential, and a secret would be painful to edit. It is still not in git.
 
 3. Enable Actions if a fork disabled them.
 4. Actions → **GitHub → Todoist sync** → Run workflow with **Plan only** checked. Inspect `skipped_dates` and `WARN:` lines.
