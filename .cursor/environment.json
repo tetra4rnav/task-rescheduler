@@ -1,0 +1,4 @@
+{
+  "name": "task-rescheduler",
+  "install": "node --version && python3 --version && gh --version | head -n 1"
+}
