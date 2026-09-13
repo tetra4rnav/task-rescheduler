@@ -8,7 +8,7 @@ Development board: [task-rescheduler development](https://github.com/users/tetra
 
 ## Teams
 
-| Team | Directory | Label |
+| Team | Directory today | Label today |
 |---|---|---|
 | `reallocator` | [`todoist-rescheduler/`](todoist-rescheduler/README.md) | `todoist-rescheduler` |
 | `gh-todoist-sync` | [`todoist-github-sync/`](todoist-github-sync/README.md) | `todoist-github-sync` |
@@ -16,6 +16,12 @@ Development board: [task-rescheduler development](https://github.com/users/tetra
 The board **Team** field uses those two values. Notion, Calendar write-back,
 and an internal task store are **unowned** until a source-of-truth model is
 chosen; do not add a third team for them yet.
+
+`reallocator` is the intended product name. The repo still uses
+`todoist-rescheduler` for the directory, issue label, and much of the
+existing docs. That is one product, not two. A later rename should align
+the folder, label, and docs on `reallocator` ([#24](https://github.com/tetra4rnav/task-rescheduler/issues/24)).
+Until then, follow the current paths.
 
 ## Design (no team)
 
@@ -33,6 +39,7 @@ chosen; do not add a third team for them yet.
 - [#13](https://github.com/tetra4rnav/task-rescheduler/issues/13) planner double-booking against existing Todoist dues
 - [#17](https://github.com/tetra4rnav/task-rescheduler/issues/17) POLICY.md as the only source for behavior labels
 - [#21](https://github.com/tetra4rnav/task-rescheduler/issues/21) leftover operator hub/dashboard scripts
+- [#24](https://github.com/tetra4rnav/task-rescheduler/issues/24) rename `todoist-rescheduler` paths to `reallocator`
 
 ## Privacy
 
