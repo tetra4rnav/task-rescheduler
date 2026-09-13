@@ -13,10 +13,9 @@ Development board: [task-rescheduler development](https://github.com/users/tetra
 | `reallocator` | [`todoist-rescheduler/`](todoist-rescheduler/README.md) | `todoist-rescheduler` |
 | `gh-todoist-sync` | [`todoist-github-sync/`](todoist-github-sync/README.md) | `todoist-github-sync` |
 
-The board **Team** field should use those two values (not `Squad 1/2/3`
-placeholders). Notion, Calendar write-back, and an internal task store are
-**unowned** until a source-of-truth model is chosen; do not add a third team
-for them yet.
+The board **Team** field uses those two values. Notion, Calendar write-back,
+and an internal task store are **unowned** until a source-of-truth model is
+chosen; do not add a third team for them yet.
 
 ## Design (no team)
 
