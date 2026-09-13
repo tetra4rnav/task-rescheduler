@@ -17,6 +17,7 @@ a required pipeline. Using one does not require the other.
 task-rescheduler/
 ├── AGENTS.md
 ├── LICENSE
+├── ROADMAP.md                   # Issue index; not a delivery promise
 ├── .github/workflows/           # Optional Actions scheduler for sync only
 ├── todoist-github-sync/         # Product: GitHub → Todoist
 └── todoist-rescheduler/         # Product: Todoist placement
@@ -38,6 +39,12 @@ task-rescheduler/
 Repo-level contracts: [`AGENTS.md`](AGENTS.md). Follow the **product** README
 for the product you are changing. Rescheduler skill:
 [`todoist-rescheduler/SKILL.md`](todoist-rescheduler/SKILL.md).
+
+## Future work
+
+Possible later directions (Todoist / GitHub Issues / Google Calendar / Notion)
+are tracked as issues, indexed in [`ROADMAP.md`](ROADMAP.md). That file is
+not a commitment and does not merge the two products.
 
 ## License
 
