@@ -214,6 +214,56 @@ test('apply-llm retries due-only when the first due write returns ITEM_DURATION_
   assert.ok(client.calls.every((call) => !(call.payload.due_datetime && call.payload.duration)));
 });
 
+test('apply-llm recovers a mixed batch like the 2026-09-19 6/37 failure', async () => {
+  const client = new FakeTodoistClient({
+    onCall(_taskId, payload) {
+      if (payload.duration) throw durationInvalidError();
+    },
+  });
+  const withDuration = Array.from({ length: 6 }, (_, i) => {
+    const id = `ok-${i + 1}`;
+    return {
+      id,
+      live: task({
+        id,
+        content: 'Has duration',
+        labels: [],
+        due: null,
+        duration: { amount: 30, unit: 'minute' },
+      }),
+    };
+  });
+  const noDuration = Array.from({ length: 31 }, (_, i) => {
+    const id = `fail-${i + 1}`;
+    return { id, live: task({ id, content: 'Empty', labels: [], due: null }) };
+  });
+  const rows = [...withDuration, ...noDuration];
+  const registryPath = await withRegistry(rows.map((row) => ({ id: row.id })));
+  const result = await applyLlmPlacements(
+    rows.map((row) => ({ task_id: row.id, due: DUE, duration_minutes: 45 })),
+    {
+      todoistClient: client,
+      tasks: rows.map((row) => row.live),
+      registryPath,
+      fixedDurationLabel: 'fixed-duration',
+    },
+  );
+
+  assert.equal(result.applied.length, 37);
+  assert.equal(result.errors.length, 31);
+  assert.ok(result.errors.every((entry) => (
+    entry.step === 'duration'
+    && entry.recovered === true
+    && entry.error_tag === 'ITEM_DURATION_INVALID'
+    && entry.body?.error_code === 546
+  )));
+  assert.ok(client.calls.every((call) => !(call.payload.due_datetime && call.payload.duration)));
+  assert.equal(client.calls.filter((call) => call.payload.due_datetime).length, 37);
+
+  const registry = await loadRegistry(registryPath);
+  assert.equal(rescheduledIds(registry).length, 37);
+});
+
 test('apply-llm surfaces due-write body and does not mark failed tasks rescheduled', async () => {
   const dueFail = new ApiError('Todoist API request failed with status 400', {
     status: 400,
